@@ -1,0 +1,192 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Single admin user ───
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// ─── Domains being warmed ───
+model Domain {
+  id              String        @id @default(cuid())
+  domain          String        @unique
+  mailgunDomainId String?
+  status          DomainStatus  @default(PENDING)
+  warmingStatus   WarmingStatus @default(NOT_STARTED)
+  warmingSchedule ScheduleType  @default(MODERATE)
+
+  // DNS / auth health
+  spfValid   Boolean @default(false)
+  dkimValid  Boolean @default(false)
+  dmarcValid Boolean @default(false)
+  mxValid    Boolean @default(false)
+  isVerified Boolean @default(false)
+
+  // AI context
+  businessSummary  String?  @db.Text
+  businessKeywords String[] @default([])
+
+  // Warming state
+  currentDay  Int @default(0)
+  dailyTarget Int @default(0)
+  sentToday   Int @default(0)
+
+  // Reputation tracking
+  reputationScore Float @default(0)
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  pausedAt         DateTime?
+  warmingStartedAt DateTime?
+
+  // Relations
+  emailLogs             EmailLog[]
+  seedAddresses         SeedAddress[]
+  dailyStats            DailyStat[]
+  warmingScheduleConfig WarmingScheduleConfig[]
+  generatedContent      GeneratedContent[]
+
+  @@index([status])
+  @@index([warmingStatus])
+}
+
+enum DomainStatus {
+  PENDING
+  VERIFYING
+  ACTIVE
+  ERROR
+}
+
+enum WarmingStatus {
+  NOT_STARTED
+  WARMING
+  READY
+  PAUSED
+  ISSUES
+}
+
+enum ScheduleType {
+  CONSERVATIVE
+  MODERATE
+  AGGRESSIVE
+}
+
+// ─── Per-day volume targets ───
+model WarmingScheduleConfig {
+  id           String @id @default(cuid())
+  domainId     String
+  domain       Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  day          Int
+  targetVolume Int
+
+  @@unique([domainId, day])
+}
+
+// ─── Seed addresses for warming ───
+model SeedAddress {
+  id         String   @id @default(cuid())
+  email      String
+  domainId   String?
+  domain     Domain?  @relation(fields: [domainId], references: [id], onDelete: SetNull)
+  isInternal Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@unique([email, domainId])
+}
+
+// ─── Email send log ───
+model EmailLog {
+  id               String      @id @default(cuid())
+  domainId         String
+  domain           Domain      @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  mailgunMessageId String?     @unique
+  fromAddress      String
+  toAddress        String
+  subject          String
+  bodyPreview      String?     @db.Text
+  isReply          Boolean     @default(false)
+  inReplyToId      String?
+  shouldReply      Boolean     @default(false)
+  replyScheduledAt DateTime?
+
+  // Delivery status
+  status        EmailStatus @default(QUEUED)
+  deliveredAt   DateTime?
+  openedAt      DateTime?
+  bouncedAt     DateTime?
+  complainedAt  DateTime?
+  failedAt      DateTime?
+  failureReason String?
+
+  sentAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([domainId, sentAt])
+  @@index([mailgunMessageId])
+  @@index([status])
+  @@index([shouldReply, replyScheduledAt])
+}
+
+enum EmailStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  OPENED
+  BOUNCED
+  COMPLAINED
+  FAILED
+}
+
+// ─── Aggregated daily stats ───
+model DailyStat {
+  id         String   @id @default(cuid())
+  domainId   String
+  domain     Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  date       DateTime @db.Date
+  sent       Int      @default(0)
+  delivered  Int      @default(0)
+  opened     Int      @default(0)
+  bounced    Int      @default(0)
+  complained Int      @default(0)
+  failed     Int      @default(0)
+
+  @@unique([domainId, date])
+  @@index([date])
+}
+
+// ─── Pre-generated email content pool ───
+model GeneratedContent {
+  id         String    @id @default(cuid())
+  domainId   String
+  domain     Domain    @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  senderName String    @default("Team")
+  subject    String
+  body       String    @db.Text
+  tone       String
+  topic     String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([domainId, usedAt])
+}
+
+// ─── App settings (singleton) ───
+model Settings {
+  id                   String  @id @default("singleton")
+  mailgunApiKey        String? @db.Text
+  openRouterApiKey     String? @db.Text
+  webhookSigningKey    String?
+  defaultFromName      String  @default("Team")
+  maxDailyGlobalEmails Int     @default(500)
+  warmingEnabled       Boolean @default(true)
+}
