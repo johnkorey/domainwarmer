@@ -8,6 +8,7 @@ import {
   LayoutDashboard,
   Globe,
   Mail,
+  MousePointerClick,
   Settings,
   LogOut,
 } from "lucide-react";
@@ -16,6 +17,7 @@ const navItems = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { label: "Domains", href: "/dashboard/domains", icon: Globe },
   { label: "Seed Addresses", href: "/dashboard/seeds", icon: Mail },
+  { label: "Engagement", href: "/dashboard/engagement", icon: MousePointerClick },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 

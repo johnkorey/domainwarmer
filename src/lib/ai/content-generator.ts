@@ -10,6 +10,12 @@ import {
 } from "./prompts";
 import { CONTENT_POOL_GENERATE } from "../constants";
 
+function stripMarkdownJson(text: string): string {
+  // Strip ```json ... ``` or ``` ... ``` wrappers
+  const match = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  return match ? match[1].trim() : text.trim();
+}
+
 export async function generateBusinessSummary(
   domainName: string
 ): Promise<{ summary: string; keywords: string[] }> {
@@ -38,7 +44,7 @@ export async function generateBusinessSummary(
   );
 
   try {
-    const parsed = JSON.parse(response);
+    const parsed = JSON.parse(stripMarkdownJson(response));
     return {
       summary: parsed.summary || `Business website at ${domainName}`,
       keywords: parsed.keywords || [domainName.split(".")[0]],
@@ -81,7 +87,7 @@ export async function generateEmailContent(
         { temperature: 0.9, jsonMode: true }
       );
 
-      const parsed = JSON.parse(response);
+      const parsed = JSON.parse(stripMarkdownJson(response));
 
       if (parsed.subject && parsed.body) {
         await prisma.generatedContent.create({
@@ -126,7 +132,7 @@ export async function generateReplyContent(
       { temperature: 0.8, jsonMode: true }
     );
 
-    const parsed = JSON.parse(response);
+    const parsed = JSON.parse(stripMarkdownJson(response));
     if (parsed.subject && parsed.body) {
       return { subject: parsed.subject, body: parsed.body };
     }

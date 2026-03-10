@@ -47,5 +47,11 @@ export function initScheduler(): void {
     triggerCron("/api/cron/aggregate-stats");
   });
 
-  console.log("Warming scheduler initialized with 4 cron jobs.");
+  // Webmail engagement: every 20 minutes during 6am-10pm UTC
+  cron.schedule("*/20 6-22 * * *", () => {
+    console.log("[Cron] Running webmail engagement check...");
+    triggerCron("/api/cron/webmail-engagement");
+  });
+
+  console.log("Warming scheduler initialized with 5 cron jobs.");
 }

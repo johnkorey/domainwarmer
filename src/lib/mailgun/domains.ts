@@ -23,11 +23,39 @@ export interface MailgunDnsRecord {
 export async function createMailgunDomain(
   domainName: string
 ): Promise<MailgunDomainInfo> {
-  return mailgunPost("/domains", {
+  const result = await mailgunPost("/domains", {
     name: domainName,
     spam_action: "disabled",
     wildcard: "false",
   });
+
+  // Enable open and click tracking for analytics
+  await enableDomainTracking(domainName);
+
+  return result;
+}
+
+export async function enableDomainTracking(
+  domainName: string
+): Promise<void> {
+  try {
+    // Enable open tracking
+    await mailgunPut(`/domains/${domainName}/tracking/open`, {
+      active: "yes",
+    });
+
+    // Enable click tracking
+    await mailgunPut(`/domains/${domainName}/tracking/click`, {
+      active: "yes",
+    });
+
+    // Enable unsubscribe tracking
+    await mailgunPut(`/domains/${domainName}/tracking/unsubscribe`, {
+      active: "no", // Disabled — warming emails shouldn't have unsubscribe links
+    });
+  } catch (err) {
+    console.warn(`Failed to enable tracking for ${domainName}:`, err);
+  }
 }
 
 export async function getMailgunDomain(

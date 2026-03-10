@@ -84,3 +84,12 @@ export const COMPLAINT_RATE_LIMIT = 0.001; // 0.1%
 export const REPLY_PERCENTAGE = 0.3; // 30% of emails get simulated replies
 export const CONTENT_POOL_MIN = 10; // minimum content items per domain
 export const CONTENT_POOL_GENERATE = 20; // generate this many when pool is low
+
+// Webmail engagement
+export const WEBMAIL_REPLY_PERCENTAGE = 0.3; // 30% of webmail-received emails get replies
+export const WEBMAIL_MAX_CONSECUTIVE_ERRORS = 5; // disable account after this many failures
+export const WEBMAIL_ACTION_DELAY_MIN = 2000; // min ms between actions
+export const WEBMAIL_ACTION_DELAY_MAX = 8000; // max ms between actions
+export const WEBMAIL_ACCOUNT_DELAY_MIN = 5000; // min ms between accounts
+export const WEBMAIL_ACCOUNT_DELAY_MAX = 15000; // max ms between accounts
+export const WEBMAIL_LOOKBACK_DAYS = 3; // how far back to check for emails

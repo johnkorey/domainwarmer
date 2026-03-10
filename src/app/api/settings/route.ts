@@ -76,6 +76,10 @@ export async function PATCH(request: NextRequest) {
       updateData.warmingEnabled = body.warmingEnabled;
     }
 
+    if (body.webmailEngagementEnabled !== undefined) {
+      updateData.webmailEngagementEnabled = body.webmailEngagementEnabled;
+    }
+
     const settings = await prisma.settings.upsert({
       where: { id: "singleton" },
       create: { id: "singleton", ...updateData },

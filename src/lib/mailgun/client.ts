@@ -58,11 +58,15 @@ export async function mailgunPost(
   return res.json();
 }
 
-export async function mailgunPut(path: string) {
+export async function mailgunPut(
+  path: string,
+  body?: Record<string, string>
+) {
   const apiKey = await getApiKey();
   const res = await fetch(`${MAILGUN_API_BASE}${path}`, {
     method: "PUT",
     headers: { Authorization: authHeader(apiKey) },
+    body: body ? new URLSearchParams(body) : undefined,
   });
   if (!res.ok) {
     const text = await res.text();

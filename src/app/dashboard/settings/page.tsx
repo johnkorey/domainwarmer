@@ -18,6 +18,7 @@ interface SettingsData {
   defaultFromName: string;
   maxDailyGlobalEmails: number;
   warmingEnabled: boolean;
+  webmailEngagementEnabled: boolean;
 }
 
 export default function SettingsPage() {
@@ -31,6 +32,7 @@ export default function SettingsPage() {
   const [defaultFromName, setDefaultFromName] = useState("Team");
   const [maxDailyEmails, setMaxDailyEmails] = useState(500);
   const [warmingEnabled, setWarmingEnabled] = useState(true);
+  const [webmailEnabled, setWebmailEnabled] = useState(true);
 
   // UI state
   const [showMailgun, setShowMailgun] = useState(false);
@@ -53,6 +55,7 @@ export default function SettingsPage() {
     setDefaultFromName(data.defaultFromName);
     setMaxDailyEmails(data.maxDailyGlobalEmails);
     setWarmingEnabled(data.warmingEnabled);
+    setWebmailEnabled(data.webmailEngagementEnabled);
     setLoading(false);
   }
 
@@ -295,6 +298,25 @@ export default function SettingsPage() {
                 }}
               >
                 {warmingEnabled ? "Enabled" : "Disabled"}
+              </Button>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div>
+                <p className="font-medium">Webmail Engagement</p>
+                <p className="text-sm text-muted-foreground">
+                  Automatically engage with warming emails via connected webmail accounts
+                </p>
+              </div>
+              <Button
+                variant={webmailEnabled ? "default" : "outline"}
+                onClick={() => {
+                  const newValue = !webmailEnabled;
+                  setWebmailEnabled(newValue);
+                  saveField("webmailEngagementEnabled", newValue);
+                }}
+              >
+                {webmailEnabled ? "Enabled" : "Disabled"}
               </Button>
             </div>
           </CardContent>

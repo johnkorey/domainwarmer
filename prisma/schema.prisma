@@ -131,6 +131,9 @@ model EmailLog {
   sentAt    DateTime @default(now())
   createdAt DateTime @default(now())
 
+  // Webmail engagement
+  engagementLogs EngagementLog[]
+
   @@index([domainId, sentAt])
   @@index([mailgunMessageId])
   @@index([status])
@@ -188,5 +191,71 @@ model Settings {
   webhookSigningKey    String?
   defaultFromName      String  @default("Team")
   maxDailyGlobalEmails Int     @default(500)
-  warmingEnabled       Boolean @default(true)
+  warmingEnabled              Boolean @default(true)
+  webmailEngagementEnabled    Boolean @default(true)
+}
+
+// ─── Webmail accounts for engagement ───
+enum WebmailProvider {
+  GMAIL
+  OUTLOOK
+  YAHOO
+  AOL
+  ROUNDCUBE
+}
+
+enum EngagementAction {
+  OPENED
+  MOVED_TO_INBOX
+  MARKED_NOT_SPAM
+  REPLIED
+  STARRED
+}
+
+model WebmailAccount {
+  id       String          @id @default(cuid())
+  email    String
+  provider WebmailProvider
+
+  // IMAP credentials (encrypted)
+  imapHost     String?
+  imapPort     Int?
+  imapPassword String? @db.Text
+
+  // SMTP settings
+  smtpHost String?
+  smtpPort Int?
+
+  // State
+  isActive          Boolean   @default(true)
+  lastCheckedAt     DateTime?
+  lastError         String?
+  consecutiveErrors Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  engagementLogs EngagementLog[]
+
+  @@unique([email, provider])
+}
+
+model EngagementLog {
+  id        String          @id @default(cuid())
+  accountId String
+  account   WebmailAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  emailLogId String?
+  emailLog   EmailLog? @relation(fields: [emailLogId], references: [id], onDelete: SetNull)
+
+  action    EngagementAction
+  messageId String?
+  fromAddress String
+  subject     String
+  folder      String?
+
+  performedAt DateTime @default(now())
+
+  @@index([accountId, performedAt])
+  @@index([emailLogId])
 }
