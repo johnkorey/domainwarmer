@@ -22,6 +22,9 @@ import {
   Mail,
   TrendingUp,
   Calendar,
+  Clock,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -77,6 +80,63 @@ interface EmailLog {
   status: string;
   isReply: boolean;
   sentAt: string;
+  deliveredAt: string | null;
+  openedAt: string | null;
+  bouncedAt: string | null;
+  complainedAt: string | null;
+  failedAt: string | null;
+  failureReason: string | null;
+  shouldReply: boolean;
+  replyScheduledAt: string | null;
+}
+
+interface EmailLogResponse {
+  emails: EmailLog[];
+  total: number;
+  page: number;
+  totalPages: number;
+}
+
+const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  QUEUED: { label: "Queued", color: "bg-gray-500/10 text-gray-600" },
+  SENT: { label: "Sent", color: "bg-blue-500/10 text-blue-600" },
+  DELIVERED: { label: "Delivered", color: "bg-green-500/10 text-green-600" },
+  OPENED: { label: "Opened", color: "bg-purple-500/10 text-purple-600" },
+  BOUNCED: { label: "Bounced", color: "bg-red-500/10 text-red-600" },
+  COMPLAINED: { label: "Complained", color: "bg-orange-500/10 text-orange-600" },
+  FAILED: { label: "Failed", color: "bg-red-500/10 text-red-600" },
+};
+
+function getNextSendTime(domain: DomainDetail): string | null {
+  if (domain.warmingStatus !== "WARMING") return null;
+  if (domain.sentToday >= domain.dailyTarget) return "Daily target reached";
+
+  const now = new Date();
+  const utcHour = now.getUTCHours();
+
+  // Warming runs every 10 min during 6am-10pm UTC
+  if (utcHour < 6) {
+    const next = new Date(now);
+    next.setUTCHours(6, 0, 0, 0);
+    return next.toLocaleString();
+  }
+  if (utcHour >= 22) {
+    const next = new Date(now);
+    next.setUTCDate(next.getUTCDate() + 1);
+    next.setUTCHours(6, 0, 0, 0);
+    return next.toLocaleString();
+  }
+
+  // Next 10-minute window
+  const mins = now.getUTCMinutes();
+  const nextWindow = Math.ceil((mins + 1) / 10) * 10;
+  const next = new Date(now);
+  if (nextWindow >= 60) {
+    next.setUTCHours(utcHour + 1, 0, 0, 0);
+  } else {
+    next.setUTCMinutes(nextWindow, 0, 0);
+  }
+  return next.toLocaleString();
 }
 
 export default function DomainDetailPage() {
@@ -84,7 +144,9 @@ export default function DomainDetailPage() {
   const router = useRouter();
   const domainId = params.domainId as string;
   const [domain, setDomain] = useState<DomainDetail | null>(null);
-  const [emails, setEmails] = useState<EmailLog[]>([]);
+  const [emailData, setEmailData] = useState<EmailLogResponse | null>(null);
+  const [emailPage, setEmailPage] = useState(1);
+  const [emailFilter, setEmailFilter] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
 
@@ -130,12 +192,15 @@ export default function DomainDetailPage() {
     await fetchDomain();
   }
 
-  async function fetchEmails() {
-    const res = await fetch(`/api/domains/${domainId}/stats`);
+  const fetchEmails = useCallback(async (page = 1, status = "") => {
+    const params = new URLSearchParams({ page: String(page), limit: "25" });
+    if (status) params.set("status", status);
+    const res = await fetch(`/api/domains/${domainId}/emails?${params}`);
     if (res.ok) {
-      // We don't have a separate email log endpoint, stats are in domain data
+      const data = await res.json();
+      setEmailData(data);
     }
-  }
+  }, [domainId]);
 
   if (loading || !domain) {
     return (
@@ -174,9 +239,10 @@ export default function DomainDetailPage() {
         }
       />
 
-      <Tabs defaultValue="overview">
+      <Tabs defaultValue="overview" onValueChange={(v) => { if (v === "emails") fetchEmails(1, emailFilter); }}>
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="emails">Emails</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="dns">DNS</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
@@ -287,9 +353,191 @@ export default function DomainDetailPage() {
                     </span>
                   </div>
                 )}
+                {getNextSendTime(domain) && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <Clock className="h-4 w-4" />
+                      Next Send
+                    </span>
+                    <span className="font-medium text-xs">
+                      {getNextSendTime(domain)}
+                    </span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* EMAILS TAB */}
+        <TabsContent value="emails">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Email Log</CardTitle>
+                {emailData && (
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {emailData.total} total emails
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <select
+                  value={emailFilter}
+                  onChange={(e) => {
+                    setEmailFilter(e.target.value);
+                    setEmailPage(1);
+                    fetchEmails(1, e.target.value);
+                  }}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="SENT">Sent</option>
+                  <option value="DELIVERED">Delivered</option>
+                  <option value="OPENED">Opened</option>
+                  <option value="BOUNCED">Bounced</option>
+                  <option value="COMPLAINED">Complained</option>
+                  <option value="FAILED">Failed</option>
+                </select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fetchEmails(emailPage, emailFilter)}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {domain.warmingStatus === "WARMING" && (
+                <div className="mx-4 mb-3 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+                  <Clock className="h-4 w-4 shrink-0" />
+                  <span>
+                    <strong>Next batch:</strong> {getNextSendTime(domain) || "—"}
+                    {" · "}
+                    <strong>{domain.dailyTarget - domain.sentToday}</strong> remaining today
+                    {" · "}
+                    Sending ~{Math.max(1, Math.ceil((domain.dailyTarget - domain.sentToday) / Math.max(1, (22 - new Date().getUTCHours()) * 6)))} per batch
+                  </span>
+                </div>
+              )}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      <th className="text-left p-3 font-medium">From</th>
+                      <th className="text-left p-3 font-medium">To</th>
+                      <th className="text-left p-3 font-medium">Subject</th>
+                      <th className="text-left p-3 font-medium">Status</th>
+                      <th className="text-left p-3 font-medium">Tracking</th>
+                      <th className="text-left p-3 font-medium">Sent</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {emailData?.emails.map((email) => {
+                      const statusInfo = STATUS_CONFIG[email.status] || STATUS_CONFIG.SENT;
+                      return (
+                        <tr key={email.id} className="border-b hover:bg-muted/30">
+                          <td className="p-3 font-mono text-xs max-w-[180px] truncate">
+                            {email.isReply && (
+                              <Badge variant="outline" className="mr-1 text-[10px] px-1 py-0">Reply</Badge>
+                            )}
+                            {email.fromAddress}
+                          </td>
+                          <td className="p-3 font-mono text-xs max-w-[180px] truncate">
+                            {email.toAddress}
+                          </td>
+                          <td className="p-3 max-w-[200px] truncate" title={email.subject}>
+                            {email.subject}
+                          </td>
+                          <td className="p-3">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusInfo.color}`}>
+                              {statusInfo.label}
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                              {email.deliveredAt && (
+                                <span className="text-green-600">
+                                  Delivered {new Date(email.deliveredAt).toLocaleTimeString()}
+                                </span>
+                              )}
+                              {email.openedAt && (
+                                <span className="text-purple-600">
+                                  Opened {new Date(email.openedAt).toLocaleTimeString()}
+                                </span>
+                              )}
+                              {email.bouncedAt && (
+                                <span className="text-red-600">
+                                  Bounced {new Date(email.bouncedAt).toLocaleTimeString()}
+                                </span>
+                              )}
+                              {email.complainedAt && (
+                                <span className="text-orange-600">
+                                  Complained {new Date(email.complainedAt).toLocaleTimeString()}
+                                </span>
+                              )}
+                              {email.failedAt && (
+                                <span className="text-red-600" title={email.failureReason || ""}>
+                                  Failed {new Date(email.failedAt).toLocaleTimeString()}
+                                </span>
+                              )}
+                              {!email.deliveredAt && !email.openedAt && !email.bouncedAt && !email.failedAt && !email.complainedAt && (
+                                <span>Awaiting delivery</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3 text-xs text-muted-foreground whitespace-nowrap">
+                            {new Date(email.sentAt).toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {(!emailData || emailData.emails.length === 0) && (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                          No emails sent yet. Start warming to begin sending.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {emailData && emailData.totalPages > 1 && (
+                <div className="flex items-center justify-between border-t px-4 py-3">
+                  <p className="text-sm text-muted-foreground">
+                    Page {emailData.page} of {emailData.totalPages}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={emailData.page <= 1}
+                      onClick={() => {
+                        const p = emailPage - 1;
+                        setEmailPage(p);
+                        fetchEmails(p, emailFilter);
+                      }}
+                    >
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={emailData.page >= emailData.totalPages}
+                      onClick={() => {
+                        const p = emailPage + 1;
+                        setEmailPage(p);
+                        fetchEmails(p, emailFilter);
+                      }}
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* ANALYTICS TAB */}

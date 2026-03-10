@@ -8,7 +8,34 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { WarmingStatusBadge, DomainStatusBadge } from "@/components/domains/status-badge";
 import { WarmthIndicator } from "@/components/domains/warmth-indicator";
-import { Plus, Check, X, Trash2 } from "lucide-react";
+import { Plus, Check, X, Trash2, Clock } from "lucide-react";
+
+function getNextSendTime(domain: DomainData): string | null {
+  if (domain.warmingStatus !== "WARMING") return null;
+  if (domain.sentToday >= domain.dailyTarget) return "Done for today";
+
+  const now = new Date();
+  const utcHour = now.getUTCHours();
+
+  if (utcHour < 6) {
+    const next = new Date(now);
+    next.setUTCHours(6, 0, 0, 0);
+    return next.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  if (utcHour >= 22) {
+    return "Tomorrow 6:00 UTC";
+  }
+
+  const mins = now.getUTCMinutes();
+  const nextWindow = Math.ceil((mins + 1) / 10) * 10;
+  const next = new Date(now);
+  if (nextWindow >= 60) {
+    next.setUTCHours(utcHour + 1, 0, 0, 0);
+  } else {
+    next.setUTCMinutes(nextWindow, 0, 0);
+  }
+  return next.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
 
 interface DomainData {
   id: string;
@@ -88,6 +115,7 @@ export default function DomainsPage() {
                   <th className="text-center p-4 font-medium">DKIM</th>
                   <th className="text-center p-4 font-medium">MX</th>
                   <th className="text-left p-4 font-medium">Progress</th>
+                  <th className="text-left p-4 font-medium">Next Send</th>
                   <th className="text-center p-4 font-medium">Score</th>
                   <th className="text-right p-4 font-medium">Actions</th>
                 </tr>
@@ -144,6 +172,16 @@ export default function DomainsPage() {
                       )}
                     </td>
                     <td className="p-4">
+                      {getNextSendTime(domain) ? (
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <Clock className="h-3 w-3 text-muted-foreground" />
+                          <span>{getNextSendTime(domain)}</span>
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">-</span>
+                      )}
+                    </td>
+                    <td className="p-4">
                       <div className="flex justify-center">
                         <WarmthIndicator score={domain.reputationScore} size="sm" showLabel={false} />
                       </div>
@@ -161,7 +199,7 @@ export default function DomainsPage() {
                 ))}
                 {domains.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                    <td colSpan={10} className="p-8 text-center text-muted-foreground">
                       No domains added yet
                     </td>
                   </tr>

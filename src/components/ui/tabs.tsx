@@ -14,14 +14,25 @@ function Tabs({
   defaultValue,
   children,
   className,
+  onValueChange,
 }: {
   defaultValue: string;
   children: React.ReactNode;
   className?: string;
+  onValueChange?: (value: string) => void;
 }) {
   const [activeTab, setActiveTab] = React.useState(defaultValue);
+
+  const handleSetActiveTab = React.useCallback(
+    (tab: string) => {
+      setActiveTab(tab);
+      onValueChange?.(tab);
+    },
+    [onValueChange]
+  );
+
   return (
-    <TabsContext.Provider value={{ activeTab, setActiveTab }}>
+    <TabsContext.Provider value={{ activeTab, setActiveTab: handleSetActiveTab }}>
       <div className={className}>{children}</div>
     </TabsContext.Provider>
   );
