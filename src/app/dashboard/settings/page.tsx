@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Check, Eye, EyeOff, Key, Save } from "lucide-react";
+import { Check, Eye, EyeOff, Key, Lock, Save } from "lucide-react";
 
 interface SettingsData {
   mailgunApiKey: string | null;
@@ -33,6 +33,14 @@ export default function SettingsPage() {
   const [maxDailyEmails, setMaxDailyEmails] = useState(500);
   const [warmingEnabled, setWarmingEnabled] = useState(true);
   const [webmailEnabled, setWebmailEnabled] = useState(true);
+
+  // Password change
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmNewPassword, setConfirmNewPassword] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordSaved, setPasswordSaved] = useState(false);
 
   // UI state
   const [showMailgun, setShowMailgun] = useState(false);
@@ -75,6 +83,40 @@ export default function SettingsPage() {
     if (field === "mailgunApiKey") setMailgunKey("");
     if (field === "openRouterApiKey") setOpenRouterKey("");
     if (field === "webhookSigningKey") setWebhookKey("");
+  }
+
+  async function changePassword() {
+    setPasswordError("");
+    if (newPassword !== confirmNewPassword) {
+      setPasswordError("Passwords do not match");
+      return;
+    }
+    if (newPassword.length < 8) {
+      setPasswordError("New password must be at least 8 characters");
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPasswordError(data.error || "Failed to change password");
+        return;
+      }
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      setPasswordSaved(true);
+      setTimeout(() => setPasswordSaved(false), 3000);
+    } catch {
+      setPasswordError("Network error");
+    } finally {
+      setPasswordSaving(false);
+    }
   }
 
   if (loading) {
@@ -319,6 +361,64 @@ export default function SettingsPage() {
                 {webmailEnabled ? "Enabled" : "Disabled"}
               </Button>
             </div>
+          </CardContent>
+        </Card>
+        {/* Change Password */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lock className="h-4 w-4" />
+              Change Password
+            </CardTitle>
+            <CardDescription>
+              Update your admin account password
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {passwordError && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+                {passwordError}
+              </div>
+            )}
+            {passwordSaved && (
+              <div className="rounded-md bg-emerald-500/10 border border-emerald-500/20 p-3 text-sm text-emerald-600">
+                Password changed successfully
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Current Password</label>
+              <Input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="max-w-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">New Password</label>
+              <Input
+                type="password"
+                placeholder="Min 8 characters"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                className="max-w-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Confirm New Password</label>
+              <Input
+                type="password"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                className="max-w-sm"
+              />
+            </div>
+            <Button
+              onClick={changePassword}
+              disabled={!currentPassword || !newPassword || !confirmNewPassword || passwordSaving}
+            >
+              {passwordSaving ? "Changing..." : passwordSaved ? <><Check className="h-4 w-4 mr-1" />Changed</> : "Change Password"}
+            </Button>
           </CardContent>
         </Card>
       </div>

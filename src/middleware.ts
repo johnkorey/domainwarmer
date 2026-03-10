@@ -6,6 +6,7 @@ export function middleware(request: NextRequest) {
   // Public routes
   if (
     pathname === "/login" ||
+    pathname === "/setup" ||
     pathname.startsWith("/api/auth") ||
     pathname.startsWith("/api/webhooks") ||
     pathname.startsWith("/api/cron") ||

@@ -1,7 +1,6 @@
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
-import { prisma } from "./prisma";
 
 const JWT_SECRET = process.env.JWT_SECRET || "fallback-dev-secret-change-me";
 const COOKIE_NAME = "domain-warmer-token";
@@ -64,21 +63,3 @@ export async function clearSessionCookie(): Promise<void> {
   cookieStore.delete(COOKIE_NAME);
 }
 
-export async function ensureAdminUser(): Promise<void> {
-  const adminEmail = process.env.ADMIN_EMAIL || "admin@domainwarmer.local";
-  const adminPassword = process.env.ADMIN_PASSWORD || "changeme";
-
-  const existing = await prisma.user.findUnique({
-    where: { email: adminEmail },
-  });
-
-  if (!existing) {
-    await prisma.user.create({
-      data: {
-        email: adminEmail,
-        passwordHash: await hashPassword(adminPassword),
-      },
-    });
-    console.log(`Admin user created: ${adminEmail}`);
-  }
-}
