@@ -1,6 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { comparePassword, setSessionCookie } from "@/lib/auth";
+import { comparePassword, hashPassword, setSessionCookie } from "@/lib/auth";
+
+async function ensureAdminSeeded() {
+  const userCount = await prisma.user.count();
+  if (userCount === 0 && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD.length >= 8) {
+    await prisma.user.create({
+      data: {
+        email: process.env.ADMIN_EMAIL,
+        passwordHash: await hashPassword(process.env.ADMIN_PASSWORD),
+      },
+    });
+    await prisma.settings.upsert({
+      where: { id: "singleton" },
+      update: {},
+      create: { id: "singleton" },
+    });
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,6 +29,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    // Auto-seed admin from env vars if DB is empty
+    await ensureAdminSeeded();
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {

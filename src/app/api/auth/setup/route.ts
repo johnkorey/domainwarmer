@@ -5,6 +5,30 @@ import { hashPassword, setSessionCookie } from "@/lib/auth";
 export async function GET() {
   try {
     const userCount = await prisma.user.count();
+
+    // Auto-seed admin from env vars on first check if no users exist
+    if (userCount === 0 && process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
+      const email = process.env.ADMIN_EMAIL;
+      const password = process.env.ADMIN_PASSWORD;
+
+      if (password.length >= 8) {
+        await prisma.user.create({
+          data: {
+            email,
+            passwordHash: await hashPassword(password),
+          },
+        });
+
+        await prisma.settings.upsert({
+          where: { id: "singleton" },
+          update: {},
+          create: { id: "singleton" },
+        });
+
+        return NextResponse.json({ needsSetup: false });
+      }
+    }
+
     return NextResponse.json({ needsSetup: userCount === 0 });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
