@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { WarmthIndicator } from "@/components/domains/warmth-indicator";
@@ -66,6 +67,7 @@ interface AccountDetail {
   dailyTarget: number;
   sentToday: number;
   isActive: boolean;
+  lastError: string | null;
   businessSummary: string | null;
   initialAnalysis: string | null;
   warmingStartedAt: string | null;
@@ -161,6 +163,11 @@ export default function AccountDetailPage() {
   const [actionLoading, setActionLoading] = useState(false);
   const [initLoading, setInitLoading] = useState(false);
   const [initError, setInitError] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordSaved, setPasswordSaved] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [testing, setTesting] = useState(false);
 
   const fetchAccount = useCallback(async () => {
     const res = await fetch(`/api/webmail/${accountId}`);
@@ -195,6 +202,35 @@ export default function AccountDetailPage() {
       body: JSON.stringify({ warmingSchedule: schedule }),
     });
     await fetchAccount();
+  }
+
+  async function handleUpdatePassword() {
+    if (!newPassword) return;
+    setPasswordSaving(true);
+    await fetch(`/api/webmail/${accountId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imapPassword: newPassword }),
+    });
+    setNewPassword("");
+    setPasswordSaving(false);
+    setPasswordSaved(true);
+    setTimeout(() => setPasswordSaved(false), 3000);
+    await fetchAccount();
+  }
+
+  async function handleTestConnection() {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch(`/api/webmail/${accountId}/test`, { method: "POST" });
+      const data = await res.json();
+      setTestResult({ success: data.success, message: data.message || data.error });
+    } catch {
+      setTestResult({ success: false, message: "Network error" });
+    } finally {
+      setTesting(false);
+    }
   }
 
   async function handleInitialize() {
@@ -727,38 +763,111 @@ export default function AccountDetailPage() {
 
         {/* SETTINGS TAB */}
         <TabsContent value="settings">
-          <Card>
-            <CardHeader>
-              <CardTitle>Account Configuration</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {account.isWarmingAccount && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Warming Schedule</label>
-                  <Select
-                    value={account.warmingSchedule}
-                    onChange={(e) => handleScheduleChange(e.target.value)}
-                  >
-                    <option value="CONSERVATIVE">Conservative (30 days)</option>
-                    <option value="MODERATE">Moderate (21 days)</option>
-                    <option value="AGGRESSIVE">Aggressive (14 days)</option>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Conservative: slower ramp, safer. Aggressive: faster but higher risk.
-                  </p>
-                </div>
-              )}
+          <div className="grid gap-4">
+            {account.lastError && (
+              <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive">
+                <AlertTriangle className="h-4 w-4 inline mr-1" />
+                Last error: {account.lastError}
+              </div>
+            )}
 
-              {account.businessSummary && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Account Configuration</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {account.isWarmingAccount && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Warming Schedule</label>
+                    <Select
+                      value={account.warmingSchedule}
+                      onChange={(e) => handleScheduleChange(e.target.value)}
+                    >
+                      <option value="CONSERVATIVE">Conservative (30 days)</option>
+                      <option value="MODERATE">Moderate (21 days)</option>
+                      <option value="AGGRESSIVE">Aggressive (14 days)</option>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Conservative: slower ramp, safer. Aggressive: faster but higher risk.
+                    </p>
+                  </div>
+                )}
+
+                {account.businessSummary && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">AI Business Summary</label>
+                    <p className="text-sm text-muted-foreground rounded-lg border p-3">
+                      {account.businessSummary}
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Credentials</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">AI Business Summary</label>
-                  <p className="text-sm text-muted-foreground rounded-lg border p-3">
-                    {account.businessSummary}
+                  <label className="text-sm font-medium">Update Password</label>
+                  <div className="flex gap-2 max-w-md">
+                    <Input
+                      type="password"
+                      placeholder="Enter new password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                    />
+                    <Button
+                      onClick={handleUpdatePassword}
+                      disabled={!newPassword || passwordSaving}
+                    >
+                      {passwordSaved ? (
+                        <><CheckCircle className="h-4 w-4 mr-1" /> Saved</>
+                      ) : passwordSaving ? "Saving..." : "Update"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Re-enter your email password if it was changed or if you see decryption errors.
                   </p>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Test Connection</label>
+                  <div>
+                    <Button
+                      variant="outline"
+                      onClick={handleTestConnection}
+                      disabled={testing}
+                    >
+                      {testing ? (
+                        <><RefreshCw className="h-4 w-4 mr-1 animate-spin" /> Testing...</>
+                      ) : "Test IMAP Connection"}
+                    </Button>
+                  </div>
+                  {testResult && (
+                    <div className={`rounded-md p-3 text-sm ${
+                      testResult.success
+                        ? "bg-emerald-500/10 border border-emerald-500/20 text-emerald-600"
+                        : "bg-destructive/10 border border-destructive/20 text-destructive"
+                    }`}>
+                      {testResult.success ? (
+                        <><CheckCircle className="h-4 w-4 inline mr-1" /> {testResult.message}</>
+                      ) : (
+                        <><XCircle className="h-4 w-4 inline mr-1" /> {testResult.message}</>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {account.smtpHost && (
+                  <div className="text-sm text-muted-foreground">
+                    <span className="font-medium">SMTP:</span> {account.smtpHost}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import { decrypt } from "@/lib/encryption";
 import { analyzeDomain } from "@/lib/ai/domain-analyzer";
 import { generateBusinessSummary, generateEmailContent } from "@/lib/ai/content-generator";
 import { populateScheduleConfig, getDayTarget } from "@/lib/warming/schedules";
@@ -30,6 +31,18 @@ export async function POST(
       { error: "Not a warming account" },
       { status: 400 }
     );
+  }
+
+  // Verify password can be decrypted — if not, user needs to re-enter it
+  if (account.imapPassword) {
+    try {
+      decrypt(account.imapPassword);
+    } catch {
+      return NextResponse.json(
+        { error: "Email password cannot be decrypted. Please update your password in the Settings tab, then try again." },
+        { status: 400 }
+      );
+    }
   }
 
   // Check OpenRouter API key is configured
