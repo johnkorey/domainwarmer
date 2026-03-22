@@ -40,7 +40,6 @@ export default function NewAccountPage() {
           imapPort: provider === "CPANEL" ? parseInt(imapPort) : undefined,
           smtpHost: provider === "CPANEL" ? smtpHost : undefined,
           smtpPort: provider === "CPANEL" ? parseInt(smtpPort) : undefined,
-          isWarmingAccount,
         }),
       });
 
@@ -50,7 +49,8 @@ export default function NewAccountPage() {
         return;
       }
 
-      router.push("/dashboard");
+      const data = await res.json();
+      router.push(`/dashboard/accounts/${data.id}`);
     } catch {
       setError("Network error");
     } finally {
@@ -87,7 +87,7 @@ export default function NewAccountPage() {
         <CardHeader>
           <CardTitle>Account Details</CardTitle>
           <CardDescription>
-            cPanel accounts will warm via SMTP. Gmail, Outlook, etc. are for engagement only (open, reply, rescue from spam).
+            cPanel accounts are automatically analyzed and warming begins immediately. Gmail, Outlook, etc. are for engagement only (open, reply, rescue from spam).
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -184,17 +184,8 @@ export default function NewAccountPage() {
             )}
 
             {provider === "CPANEL" && (
-              <div className="flex items-center gap-2 rounded-lg border p-3">
-                <input
-                  type="checkbox"
-                  id="isWarming"
-                  checked={isWarmingAccount}
-                  onChange={(e) => setIsWarmingAccount(e.target.checked)}
-                  className="h-4 w-4"
-                />
-                <label htmlFor="isWarming" className="text-sm">
-                  Use for warming (sends emails via SMTP)
-                </label>
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
+                AI will analyze your domain, assign an initial score, and automatically begin warming.
               </div>
             )}
 

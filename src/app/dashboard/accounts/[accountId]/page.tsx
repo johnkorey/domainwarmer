@@ -13,7 +13,6 @@ import { WarmthIndicator } from "@/components/domains/warmth-indicator";
 import { WarmingStatusBadge } from "@/components/domains/status-badge";
 import {
   ArrowLeft,
-  Play,
   Pause,
   RotateCcw,
   RefreshCw,
@@ -23,6 +22,10 @@ import {
   Clock,
   ChevronLeft,
   ChevronRight,
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  Shield,
 } from "lucide-react";
 import Link from "next/link";
 import {
@@ -38,6 +41,19 @@ import {
   Legend,
 } from "recharts";
 
+interface DomainAnalysis {
+  domain: string;
+  score: number;
+  checks: {
+    mx: { found: boolean; records: string[] };
+    spf: { found: boolean; record: string | null };
+    dmarc: { found: boolean; record: string | null };
+    website: { reachable: boolean };
+  };
+  recommendations: string[];
+  summary: string;
+}
+
 interface AccountDetail {
   id: string;
   email: string;
@@ -51,6 +67,7 @@ interface AccountDetail {
   sentToday: number;
   isActive: boolean;
   businessSummary: string | null;
+  initialAnalysis: string | null;
   warmingStartedAt: string | null;
   smtpHost: string | null;
   dailyStats: Array<{
@@ -266,6 +283,13 @@ export default function AccountDetailPage() {
                   <Badge variant="outline">{account.provider}</Badge>
                 </div>
 
+                {account.isWarmingAccount && account.warmingStatus === "NOT_STARTED" && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    Analyzing domain and starting warming...
+                  </div>
+                )}
+
                 {account.isWarmingAccount && account.warmingStatus === "WARMING" && (
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
@@ -276,18 +300,15 @@ export default function AccountDetailPage() {
                   </div>
                 )}
 
+                {account.isWarmingAccount && account.warmingStatus === "READY" && (
+                  <div className="rounded-md bg-emerald-500/10 border border-emerald-500/20 p-3 text-sm text-emerald-600">
+                    <CheckCircle className="h-4 w-4 inline mr-1" />
+                    Ready for full cold email outreach
+                  </div>
+                )}
+
                 {account.isWarmingAccount && (
                   <div className="flex gap-2">
-                    {account.warmingStatus === "NOT_STARTED" && account.smtpHost && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleWarmingAction("start")}
-                        disabled={actionLoading}
-                      >
-                        <Play className="h-4 w-4 mr-1" />
-                        Start Warming
-                      </Button>
-                    )}
                     {account.warmingStatus === "WARMING" && (
                       <Button
                         size="sm"
@@ -363,6 +384,101 @@ export default function AccountDetailPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Domain Analysis Card */}
+          {account.isWarmingAccount && account.initialAnalysis && (() => {
+            let analysis: DomainAnalysis | null = null;
+            try { analysis = JSON.parse(account.initialAnalysis); } catch { /* ignore */ }
+            if (!analysis) return null;
+
+            return (
+              <Card className="mt-4">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-sm font-medium">
+                    <Shield className="h-4 w-4" />
+                    Domain Analysis — {analysis.domain}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* AI Summary */}
+                  <p className="text-sm text-muted-foreground">{analysis.summary}</p>
+
+                  {/* DNS Checks */}
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="flex items-center gap-2 rounded-lg border p-3">
+                      {analysis.checks.mx.found ? (
+                        <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" />
+                      ) : (
+                        <XCircle className="h-5 w-5 text-red-500 shrink-0" />
+                      )}
+                      <div>
+                        <p className="text-sm font-medium">MX Records</p>
+                        <p className="text-xs text-muted-foreground">
+                          {analysis.checks.mx.found
+                            ? analysis.checks.mx.records.slice(0, 2).join(", ")
+                            : "Not configured"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 rounded-lg border p-3">
+                      {analysis.checks.spf.found ? (
+                        <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" />
+                      ) : (
+                        <XCircle className="h-5 w-5 text-red-500 shrink-0" />
+                      )}
+                      <div>
+                        <p className="text-sm font-medium">SPF Record</p>
+                        <p className="text-xs text-muted-foreground">
+                          {analysis.checks.spf.found ? "Configured" : "Not configured"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 rounded-lg border p-3">
+                      {analysis.checks.dmarc.found ? (
+                        <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" />
+                      ) : (
+                        <XCircle className="h-5 w-5 text-red-500 shrink-0" />
+                      )}
+                      <div>
+                        <p className="text-sm font-medium">DMARC</p>
+                        <p className="text-xs text-muted-foreground">
+                          {analysis.checks.dmarc.found ? "Configured" : "Not configured"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 rounded-lg border p-3">
+                      {analysis.checks.website.reachable ? (
+                        <CheckCircle className="h-5 w-5 text-emerald-500 shrink-0" />
+                      ) : (
+                        <AlertTriangle className="h-5 w-5 text-yellow-500 shrink-0" />
+                      )}
+                      <div>
+                        <p className="text-sm font-medium">Website</p>
+                        <p className="text-xs text-muted-foreground">
+                          {analysis.checks.website.reachable ? "Reachable" : "Not reachable"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Recommendations */}
+                  {analysis.recommendations.length > 0 && (
+                    <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
+                      <p className="text-sm font-medium text-yellow-800 mb-1">Recommendations</p>
+                      <ul className="list-disc list-inside text-sm text-yellow-700 space-y-1">
+                        {analysis.recommendations.map((rec, i) => (
+                          <li key={i}>{rec}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            );
+          })()}
         </TabsContent>
 
         {/* EMAILS TAB */}

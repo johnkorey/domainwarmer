@@ -4,7 +4,10 @@ import { requireAuth } from "@/lib/auth";
 import { encrypt } from "@/lib/encryption";
 import { getProviderConfig } from "@/lib/webmail/provider-config";
 import { maskApiKey } from "@/lib/utils";
-import { generateBusinessSummary } from "@/lib/ai/content-generator";
+import { generateBusinessSummary, generateEmailContent } from "@/lib/ai/content-generator";
+import { analyzeDomain } from "@/lib/ai/domain-analyzer";
+import { populateScheduleConfig, getDayTarget } from "@/lib/warming/schedules";
+import { CONTENT_POOL_GENERATE } from "@/lib/constants";
 
 export async function GET() {
   try {
@@ -90,19 +93,55 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Generate business summary async for warming accounts
+  // For warming accounts: analyze domain, generate content, and auto-start warming
   if (account.isWarmingAccount) {
     const emailDomain = email.split("@")[1];
-    generateBusinessSummary(emailDomain)
-      .then(async ({ summary, keywords }) => {
+
+    // Run domain analysis + business summary in parallel, then auto-start warming
+    (async () => {
+      try {
+        // Phase 1: Analyze domain and generate business summary in parallel
+        const [analysis, businessData] = await Promise.all([
+          analyzeDomain(emailDomain),
+          generateBusinessSummary(emailDomain),
+        ]);
+
+        // Store analysis results + business summary
         await prisma.webmailAccount.update({
           where: { id: account.id },
-          data: { businessSummary: summary, businessKeywords: keywords },
+          data: {
+            initialAnalysis: JSON.stringify(analysis),
+            reputationScore: analysis.score,
+            businessSummary: businessData.summary,
+            businessKeywords: businessData.keywords,
+          },
         });
-      })
-      .catch((err) => {
-        console.error(`Failed to generate business summary for ${email}:`, err);
-      });
+
+        // Phase 2: Auto-start warming — populate schedule and set status
+        await populateScheduleConfig(account.id, account.warmingSchedule);
+        const dayOneTarget = await getDayTarget(account.id, 1);
+
+        await prisma.webmailAccount.update({
+          where: { id: account.id },
+          data: {
+            warmingStatus: "WARMING",
+            warmingStartedAt: new Date(),
+            currentDay: 1,
+            dailyTarget: dayOneTarget,
+            sentToday: 0,
+          },
+        });
+
+        // Phase 3: Pre-generate email content pool
+        await generateEmailContent(account.id, CONTENT_POOL_GENERATE);
+
+        console.log(
+          `[Auto-Warming] ${email}: analyzed (score: ${analysis.score}), warming started, ${CONTENT_POOL_GENERATE} emails generated`
+        );
+      } catch (err) {
+        console.error(`[Auto-Warming] Failed to initialize ${email}:`, err);
+      }
+    })();
   }
 
   return NextResponse.json(
