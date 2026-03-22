@@ -159,6 +159,8 @@ export default function AccountDetailPage() {
   const [emailFilter, setEmailFilter] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [initLoading, setInitLoading] = useState(false);
+  const [initError, setInitError] = useState("");
 
   const fetchAccount = useCallback(async () => {
     const res = await fetch(`/api/webmail/${accountId}`);
@@ -193,6 +195,25 @@ export default function AccountDetailPage() {
       body: JSON.stringify({ warmingSchedule: schedule }),
     });
     await fetchAccount();
+  }
+
+  async function handleInitialize() {
+    setInitLoading(true);
+    setInitError("");
+    try {
+      const res = await fetch(`/api/webmail/${accountId}/initialize`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json();
+        setInitError(data.error || "Initialization failed");
+      } else {
+        const data = await res.json();
+        setAccount(data);
+      }
+    } catch {
+      setInitError("Network error");
+    } finally {
+      setInitLoading(false);
+    }
   }
 
   const fetchEmails = useCallback(async (page = 1, status = "") => {
@@ -251,6 +272,11 @@ export default function AccountDetailPage() {
 
         {/* OVERVIEW TAB */}
         <TabsContent value="overview">
+          {initError && (
+            <div className="rounded-md bg-destructive/10 border border-destructive/20 p-3 text-sm text-destructive mb-4">
+              {initError}
+            </div>
+          )}
           <div className="grid gap-4 md:grid-cols-3">
             {/* Reputation */}
             {account.isWarmingAccount && (
@@ -283,10 +309,29 @@ export default function AccountDetailPage() {
                   <Badge variant="outline">{account.provider}</Badge>
                 </div>
 
-                {account.isWarmingAccount && account.warmingStatus === "NOT_STARTED" && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    Analyzing domain and starting warming...
+                {account.isWarmingAccount && account.warmingStatus === "NOT_STARTED" && !account.initialAnalysis && (
+                  <div className="space-y-2">
+                    <div className="rounded-md bg-yellow-500/10 border border-yellow-500/20 p-3 text-sm text-yellow-700">
+                      <AlertTriangle className="h-4 w-4 inline mr-1" />
+                      Account not initialized — AI analysis and content generation required.
+                    </div>
+                    <Button size="sm" onClick={handleInitialize} disabled={initLoading}>
+                      <RefreshCw className={`h-4 w-4 mr-1 ${initLoading ? "animate-spin" : ""}`} />
+                      {initLoading ? "Initializing..." : "Initialize Now"}
+                    </Button>
+                  </div>
+                )}
+
+                {account.isWarmingAccount && account.warmingStatus === "WARMING" && !account.initialAnalysis && (
+                  <div className="space-y-2">
+                    <div className="rounded-md bg-yellow-500/10 border border-yellow-500/20 p-3 text-sm text-yellow-700">
+                      <AlertTriangle className="h-4 w-4 inline mr-1" />
+                      Missing AI analysis — account is warming but was never analyzed. Click below to run domain analysis and generate content.
+                    </div>
+                    <Button size="sm" onClick={handleInitialize} disabled={initLoading}>
+                      <RefreshCw className={`h-4 w-4 mr-1 ${initLoading ? "animate-spin" : ""}`} />
+                      {initLoading ? "Analyzing..." : "Analyze & Initialize"}
+                    </Button>
                   </div>
                 )}
 
@@ -393,11 +438,20 @@ export default function AccountDetailPage() {
 
             return (
               <Card className="mt-4">
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle className="flex items-center gap-2 text-sm font-medium">
                     <Shield className="h-4 w-4" />
                     Domain Analysis — {analysis.domain}
                   </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleInitialize}
+                    disabled={initLoading}
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-1 ${initLoading ? "animate-spin" : ""}`} />
+                    Re-analyze
+                  </Button>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {/* AI Summary */}

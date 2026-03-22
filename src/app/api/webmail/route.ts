@@ -95,53 +95,69 @@ export async function POST(req: NextRequest) {
 
   // For warming accounts: analyze domain, generate content, and auto-start warming
   if (account.isWarmingAccount) {
-    const emailDomain = email.split("@")[1];
+    // Check if OpenRouter API key is available before attempting AI initialization
+    const settings = await prisma.settings.findUnique({
+      where: { id: "singleton" },
+    });
 
-    // Run domain analysis + business summary in parallel, then auto-start warming
-    (async () => {
-      try {
-        // Phase 1: Analyze domain and generate business summary in parallel
-        const [analysis, businessData] = await Promise.all([
-          analyzeDomain(emailDomain),
-          generateBusinessSummary(emailDomain),
-        ]);
+    if (!settings?.openRouterApiKey) {
+      console.warn(`[Auto-Warming] Skipping AI init for ${email}: no OpenRouter API key configured`);
+    } else {
+      const emailDomain = email.split("@")[1];
 
-        // Store analysis results + business summary
-        await prisma.webmailAccount.update({
-          where: { id: account.id },
-          data: {
-            initialAnalysis: JSON.stringify(analysis),
-            reputationScore: analysis.score,
-            businessSummary: businessData.summary,
-            businessKeywords: businessData.keywords,
-          },
-        });
+      // Run initialization in background — but track failures
+      (async () => {
+        try {
+          // Phase 1: Analyze domain and generate business summary in parallel
+          const [analysis, businessData] = await Promise.all([
+            analyzeDomain(emailDomain),
+            generateBusinessSummary(emailDomain),
+          ]);
 
-        // Phase 2: Auto-start warming — populate schedule and set status
-        await populateScheduleConfig(account.id, account.warmingSchedule);
-        const dayOneTarget = await getDayTarget(account.id, 1);
+          // Store analysis results + business summary
+          await prisma.webmailAccount.update({
+            where: { id: account.id },
+            data: {
+              initialAnalysis: JSON.stringify(analysis),
+              reputationScore: analysis.score,
+              businessSummary: businessData.summary,
+              businessKeywords: businessData.keywords,
+            },
+          });
 
-        await prisma.webmailAccount.update({
-          where: { id: account.id },
-          data: {
-            warmingStatus: "WARMING",
-            warmingStartedAt: new Date(),
-            currentDay: 1,
-            dailyTarget: dayOneTarget,
-            sentToday: 0,
-          },
-        });
+          // Phase 2: Auto-start warming — populate schedule and set status
+          await populateScheduleConfig(account.id, account.warmingSchedule);
+          const dayOneTarget = await getDayTarget(account.id, 1);
 
-        // Phase 3: Pre-generate email content pool
-        await generateEmailContent(account.id, CONTENT_POOL_GENERATE);
+          await prisma.webmailAccount.update({
+            where: { id: account.id },
+            data: {
+              warmingStatus: "WARMING",
+              warmingStartedAt: new Date(),
+              currentDay: 1,
+              dailyTarget: dayOneTarget,
+              sentToday: 0,
+            },
+          });
 
-        console.log(
-          `[Auto-Warming] ${email}: analyzed (score: ${analysis.score}), warming started, ${CONTENT_POOL_GENERATE} emails generated`
-        );
-      } catch (err) {
-        console.error(`[Auto-Warming] Failed to initialize ${email}:`, err);
-      }
-    })();
+          // Phase 3: Pre-generate email content pool
+          await generateEmailContent(account.id, CONTENT_POOL_GENERATE);
+
+          console.log(
+            `[Auto-Warming] ${email}: analyzed (score: ${analysis.score}), warming started, ${CONTENT_POOL_GENERATE} emails generated`
+          );
+        } catch (err) {
+          console.error(`[Auto-Warming] Failed to initialize ${email}:`, err);
+          // Mark account with error so user knows to re-initialize
+          await prisma.webmailAccount.update({
+            where: { id: account.id },
+            data: {
+              lastError: `Initialization failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+            },
+          }).catch(() => {});
+        }
+      })();
+    }
   }
 
   return NextResponse.json(
