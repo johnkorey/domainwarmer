@@ -16,55 +16,13 @@ model User {
   updatedAt    DateTime @updatedAt
 }
 
-// ─── Domains being warmed ───
-model Domain {
-  id              String        @id @default(cuid())
-  domain          String        @unique
-  mailgunDomainId String?
-  status          DomainStatus  @default(PENDING)
-  warmingStatus   WarmingStatus @default(NOT_STARTED)
-  warmingSchedule ScheduleType  @default(MODERATE)
-
-  // DNS / auth health
-  spfValid   Boolean @default(false)
-  dkimValid  Boolean @default(false)
-  dmarcValid Boolean @default(false)
-  mxValid    Boolean @default(false)
-  isVerified Boolean @default(false)
-
-  // AI context
-  businessSummary  String?  @db.Text
-  businessKeywords String[] @default([])
-
-  // Warming state
-  currentDay  Int @default(0)
-  dailyTarget Int @default(0)
-  sentToday   Int @default(0)
-
-  // Reputation tracking
-  reputationScore Float @default(0)
-
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  pausedAt         DateTime?
-  warmingStartedAt DateTime?
-
-  // Relations
-  emailLogs             EmailLog[]
-  seedAddresses         SeedAddress[]
-  dailyStats            DailyStat[]
-  warmingScheduleConfig WarmingScheduleConfig[]
-  generatedContent      GeneratedContent[]
-
-  @@index([status])
-  @@index([warmingStatus])
-}
-
-enum DomainStatus {
-  PENDING
-  VERIFYING
-  ACTIVE
-  ERROR
+// ─── Webmail accounts (warming + engagement) ───
+enum WebmailProvider {
+  GMAIL
+  OUTLOOK
+  YAHOO
+  AOL
+  CPANEL
 }
 
 enum WarmingStatus {
@@ -81,42 +39,95 @@ enum ScheduleType {
   AGGRESSIVE
 }
 
+model WebmailAccount {
+  id       String          @id @default(cuid())
+  email    String
+  provider WebmailProvider
+
+  // IMAP credentials (encrypted)
+  imapHost     String?
+  imapPort     Int?
+  imapPassword String? @db.Text
+
+  // SMTP settings
+  smtpHost String?
+  smtpPort Int?
+
+  // Role: warming accounts send emails, engagement-only accounts just interact
+  isWarmingAccount Boolean @default(false)
+
+  // Warming state (only used when isWarmingAccount = true)
+  warmingStatus   WarmingStatus @default(NOT_STARTED)
+  warmingSchedule ScheduleType  @default(MODERATE)
+  currentDay      Int           @default(0)
+  dailyTarget     Int           @default(0)
+  sentToday       Int           @default(0)
+  reputationScore Float         @default(0)
+  warmingStartedAt DateTime?
+  pausedAt         DateTime?
+
+  // AI context for content generation
+  businessSummary  String?  @db.Text
+  businessKeywords String[] @default([])
+
+  // Health state
+  isActive          Boolean   @default(true)
+  lastCheckedAt     DateTime?
+  lastError         String?
+  consecutiveErrors Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  emailLogs             EmailLog[]
+  seedAddresses         SeedAddress[]
+  dailyStats            DailyStat[]
+  warmingScheduleConfig WarmingScheduleConfig[]
+  generatedContent      GeneratedContent[]
+  engagementLogs        EngagementLog[]
+
+  @@unique([email, provider])
+  @@index([warmingStatus])
+  @@index([isWarmingAccount, warmingStatus])
+}
+
 // ─── Per-day volume targets ───
 model WarmingScheduleConfig {
-  id           String @id @default(cuid())
-  domainId     String
-  domain       Domain @relation(fields: [domainId], references: [id], onDelete: Cascade)
-  day          Int
+  id        String         @id @default(cuid())
+  accountId String
+  account   WebmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  day       Int
   targetVolume Int
 
-  @@unique([domainId, day])
+  @@unique([accountId, day])
 }
 
 // ─── Seed addresses for warming ───
 model SeedAddress {
-  id         String   @id @default(cuid())
-  email      String
-  domainId   String?
-  domain     Domain?  @relation(fields: [domainId], references: [id], onDelete: SetNull)
-  isInternal Boolean  @default(false)
-  createdAt  DateTime @default(now())
+  id        String          @id @default(cuid())
+  email     String
+  accountId String?
+  account   WebmailAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  isInternal Boolean        @default(false)
+  createdAt  DateTime       @default(now())
 
-  @@unique([email, domainId])
+  @@unique([email, accountId])
 }
 
 // ─── Email send log ───
 model EmailLog {
-  id               String      @id @default(cuid())
-  domainId         String
-  domain           Domain      @relation(fields: [domainId], references: [id], onDelete: Cascade)
-  mailgunMessageId String?     @unique
-  fromAddress      String
-  toAddress        String
-  subject          String
-  bodyPreview      String?     @db.Text
-  isReply          Boolean     @default(false)
-  inReplyToId      String?
-  shouldReply      Boolean     @default(false)
+  id            String         @id @default(cuid())
+  accountId     String
+  account       WebmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  smtpMessageId String?        @unique
+  fromAddress   String
+  toAddress     String
+  subject       String
+  bodyPreview   String?        @db.Text
+  isReply       Boolean        @default(false)
+  inReplyToId   String?
+  shouldReply   Boolean        @default(false)
   replyScheduledAt DateTime?
 
   // Delivery status
@@ -134,8 +145,8 @@ model EmailLog {
   // Webmail engagement
   engagementLogs EngagementLog[]
 
-  @@index([domainId, sentAt])
-  @@index([mailgunMessageId])
+  @@index([accountId, sentAt])
+  @@index([smtpMessageId])
   @@index([status])
   @@index([shouldReply, replyScheduledAt])
 }
@@ -152,92 +163,54 @@ enum EmailStatus {
 
 // ─── Aggregated daily stats ───
 model DailyStat {
-  id         String   @id @default(cuid())
-  domainId   String
-  domain     Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
-  date       DateTime @db.Date
-  sent       Int      @default(0)
-  delivered  Int      @default(0)
-  opened     Int      @default(0)
-  bounced    Int      @default(0)
-  complained Int      @default(0)
-  failed     Int      @default(0)
+  id        String         @id @default(cuid())
+  accountId String
+  account   WebmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  date      DateTime       @db.Date
+  sent      Int            @default(0)
+  delivered Int            @default(0)
+  opened    Int            @default(0)
+  bounced   Int            @default(0)
+  complained Int           @default(0)
+  failed    Int            @default(0)
 
-  @@unique([domainId, date])
+  @@unique([accountId, date])
   @@index([date])
 }
 
 // ─── Pre-generated email content pool ───
 model GeneratedContent {
-  id         String    @id @default(cuid())
-  domainId   String
-  domain     Domain    @relation(fields: [domainId], references: [id], onDelete: Cascade)
-  senderName String    @default("Team")
+  id         String         @id @default(cuid())
+  accountId  String
+  account    WebmailAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  senderName String         @default("Team")
   subject    String
-  body       String    @db.Text
+  body       String         @db.Text
   tone       String
-  topic     String
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
+  topic      String
+  usedAt     DateTime?
+  createdAt  DateTime       @default(now())
 
-  @@index([domainId, usedAt])
+  @@index([accountId, usedAt])
 }
 
 // ─── App settings (singleton) ───
 model Settings {
-  id                   String  @id @default("singleton")
-  mailgunApiKey        String? @db.Text
-  openRouterApiKey     String? @db.Text
-  webhookSigningKey    String?
-  defaultFromName      String  @default("Team")
-  maxDailyGlobalEmails Int     @default(500)
-  warmingEnabled              Boolean @default(true)
-  webmailEngagementEnabled    Boolean @default(true)
+  id                       String  @id @default("singleton")
+  openRouterApiKey         String? @db.Text
+  defaultFromName          String  @default("Team")
+  maxDailyGlobalEmails     Int     @default(500)
+  warmingEnabled           Boolean @default(true)
+  webmailEngagementEnabled Boolean @default(true)
 }
 
-// ─── Webmail accounts for engagement ───
-enum WebmailProvider {
-  GMAIL
-  OUTLOOK
-  YAHOO
-  AOL
-  ROUNDCUBE
-}
-
+// ─── Engagement tracking ───
 enum EngagementAction {
   OPENED
   MOVED_TO_INBOX
   MARKED_NOT_SPAM
   REPLIED
   STARRED
-}
-
-model WebmailAccount {
-  id       String          @id @default(cuid())
-  email    String
-  provider WebmailProvider
-
-  // IMAP credentials (encrypted)
-  imapHost     String?
-  imapPort     Int?
-  imapPassword String? @db.Text
-
-  // SMTP settings
-  smtpHost String?
-  smtpPort Int?
-
-  // State
-  isActive          Boolean   @default(true)
-  lastCheckedAt     DateTime?
-  lastError         String?
-  consecutiveErrors Int       @default(0)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  engagementLogs EngagementLog[]
-
-  @@unique([email, provider])
 }
 
 model EngagementLog {
@@ -248,8 +221,8 @@ model EngagementLog {
   emailLogId String?
   emailLog   EmailLog? @relation(fields: [emailLogId], references: [id], onDelete: SetNull)
 
-  action    EngagementAction
-  messageId String?
+  action      EngagementAction
+  messageId   String?
   fromAddress String
   subject     String
   folder      String?

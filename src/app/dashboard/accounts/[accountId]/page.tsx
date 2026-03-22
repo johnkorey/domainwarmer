@@ -10,14 +10,12 @@ import { Progress } from "@/components/ui/progress";
 import { Select } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { WarmthIndicator } from "@/components/domains/warmth-indicator";
-import { WarmingStatusBadge, DomainStatusBadge } from "@/components/domains/status-badge";
+import { WarmingStatusBadge } from "@/components/domains/status-badge";
 import {
   ArrowLeft,
   Play,
   Pause,
   RotateCcw,
-  Check,
-  X,
   RefreshCw,
   Mail,
   TrendingUp,
@@ -40,23 +38,21 @@ import {
   Legend,
 } from "recharts";
 
-interface DomainDetail {
+interface AccountDetail {
   id: string;
-  domain: string;
-  status: "PENDING" | "VERIFYING" | "ACTIVE" | "ERROR";
+  email: string;
+  provider: string;
+  isWarmingAccount: boolean;
   warmingStatus: "NOT_STARTED" | "WARMING" | "READY" | "PAUSED" | "ISSUES";
   warmingSchedule: "CONSERVATIVE" | "MODERATE" | "AGGRESSIVE";
   reputationScore: number;
   currentDay: number;
   dailyTarget: number;
   sentToday: number;
-  spfValid: boolean;
-  dkimValid: boolean;
-  dmarcValid: boolean;
-  mxValid: boolean;
-  isVerified: boolean;
+  isActive: boolean;
   businessSummary: string | null;
   warmingStartedAt: string | null;
+  smtpHost: string | null;
   dailyStats: Array<{
     date: string;
     sent: number;
@@ -69,6 +65,7 @@ interface DomainDetail {
     emailLogs: number;
     seedAddresses: number;
     generatedContent: number;
+    engagementLogs: number;
   };
 }
 
@@ -86,8 +83,6 @@ interface EmailLog {
   complainedAt: string | null;
   failedAt: string | null;
   failureReason: string | null;
-  shouldReply: boolean;
-  replyScheduledAt: string | null;
 }
 
 interface EmailLogResponse {
@@ -107,14 +102,13 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   FAILED: { label: "Failed", color: "bg-red-500/10 text-red-600" },
 };
 
-function getNextSendTime(domain: DomainDetail): string | null {
-  if (domain.warmingStatus !== "WARMING") return null;
-  if (domain.sentToday >= domain.dailyTarget) return "Daily target reached";
+function getNextSendTime(account: AccountDetail): string | null {
+  if (account.warmingStatus !== "WARMING") return null;
+  if (account.sentToday >= account.dailyTarget) return "Daily target reached";
 
   const now = new Date();
   const utcHour = now.getUTCHours();
 
-  // Warming runs every 10 min during 6am-10pm UTC
   if (utcHour < 6) {
     const next = new Date(now);
     next.setUTCHours(6, 0, 0, 0);
@@ -127,7 +121,6 @@ function getNextSendTime(domain: DomainDetail): string | null {
     return next.toLocaleString();
   }
 
-  // Next 10-minute window
   const mins = now.getUTCMinutes();
   const nextWindow = Math.ceil((mins + 1) / 10) * 10;
   const next = new Date(now);
@@ -139,70 +132,62 @@ function getNextSendTime(domain: DomainDetail): string | null {
   return next.toLocaleString();
 }
 
-export default function DomainDetailPage() {
+export default function AccountDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const domainId = params.domainId as string;
-  const [domain, setDomain] = useState<DomainDetail | null>(null);
+  const accountId = params.accountId as string;
+  const [account, setAccount] = useState<AccountDetail | null>(null);
   const [emailData, setEmailData] = useState<EmailLogResponse | null>(null);
   const [emailPage, setEmailPage] = useState(1);
   const [emailFilter, setEmailFilter] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const fetchDomain = useCallback(async () => {
-    const res = await fetch(`/api/domains/${domainId}`);
+  const fetchAccount = useCallback(async () => {
+    const res = await fetch(`/api/webmail/${accountId}`);
     if (res.status === 401) {
       router.push("/login");
       return;
     }
     if (res.status === 404) {
-      router.push("/dashboard/domains");
+      router.push("/dashboard");
       return;
     }
     const data = await res.json();
-    setDomain(data);
+    setAccount(data);
     setLoading(false);
-  }, [domainId, router]);
+  }, [accountId, router]);
 
   useEffect(() => {
-    fetchDomain();
-  }, [fetchDomain]);
+    fetchAccount();
+  }, [fetchAccount]);
 
   async function handleWarmingAction(action: "start" | "pause" | "resume") {
     setActionLoading(true);
-    await fetch(`/api/domains/${domainId}/warming/${action}`, { method: "POST" });
-    await fetchDomain();
-    setActionLoading(false);
-  }
-
-  async function handleVerify() {
-    setActionLoading(true);
-    await fetch(`/api/domains/${domainId}/verify`, { method: "POST" });
-    await fetchDomain();
+    await fetch(`/api/webmail/${accountId}/warming/${action}`, { method: "POST" });
+    await fetchAccount();
     setActionLoading(false);
   }
 
   async function handleScheduleChange(schedule: string) {
-    await fetch(`/api/domains/${domainId}`, {
+    await fetch(`/api/webmail/${accountId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ warmingSchedule: schedule }),
     });
-    await fetchDomain();
+    await fetchAccount();
   }
 
   const fetchEmails = useCallback(async (page = 1, status = "") => {
     const params = new URLSearchParams({ page: String(page), limit: "25" });
     if (status) params.set("status", status);
-    const res = await fetch(`/api/domains/${domainId}/emails?${params}`);
+    const res = await fetch(`/api/webmail/${accountId}/emails?${params}`);
     if (res.ok) {
-      const data = await res.json();
-      setEmailData(data);
+      setEmailData(await res.json());
     }
-  }, [domainId]);
+  }, [accountId]);
 
-  if (loading || !domain) {
+  if (loading || !account) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
@@ -210,7 +195,7 @@ export default function DomainDetailPage() {
     );
   }
 
-  const chartData = [...(domain.dailyStats || [])]
+  const chartData = [...(account.dailyStats || [])]
     .reverse()
     .map((s) => ({
       date: new Date(s.date).toLocaleDateString("en-US", {
@@ -227,10 +212,10 @@ export default function DomainDetailPage() {
   return (
     <>
       <PageHeader
-        title={domain.domain}
-        description={domain.businessSummary || "Domain warming campaign"}
+        title={account.email}
+        description={account.businessSummary || `${account.provider} email account`}
         actions={
-          <Link href="/dashboard/domains">
+          <Link href="/dashboard">
             <Button variant="outline">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Back
@@ -242,9 +227,8 @@ export default function DomainDetailPage() {
       <Tabs defaultValue="overview" onValueChange={(v) => { if (v === "emails") fetchEmails(1, emailFilter); }}>
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="emails">Emails</TabsTrigger>
-          <TabsTrigger value="analytics">Analytics</TabsTrigger>
-          <TabsTrigger value="dns">DNS</TabsTrigger>
+          {account.isWarmingAccount && <TabsTrigger value="emails">Emails</TabsTrigger>}
+          {account.isWarmingAccount && <TabsTrigger value="analytics">Analytics</TabsTrigger>}
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
@@ -252,69 +236,81 @@ export default function DomainDetailPage() {
         <TabsContent value="overview">
           <div className="grid gap-4 md:grid-cols-3">
             {/* Reputation */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium">Reputation Score</CardTitle>
-              </CardHeader>
-              <CardContent className="flex justify-center">
-                <WarmthIndicator score={domain.reputationScore} size="lg" />
-              </CardContent>
-            </Card>
+            {account.isWarmingAccount && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium">Reputation Score</CardTitle>
+                </CardHeader>
+                <CardContent className="flex justify-center">
+                  <WarmthIndicator score={account.reputationScore} size="lg" />
+                </CardContent>
+              </Card>
+            )}
 
-            {/* Warming Status */}
+            {/* Status */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm font-medium">Warming Status</CardTitle>
+                <CardTitle className="text-sm font-medium">
+                  {account.isWarmingAccount ? "Warming Status" : "Account Status"}
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <WarmingStatusBadge status={domain.warmingStatus} />
-                  <DomainStatusBadge status={domain.status} />
+                  {account.isWarmingAccount ? (
+                    <WarmingStatusBadge status={account.warmingStatus} />
+                  ) : (
+                    <Badge variant={account.isActive ? "success" : "outline"}>
+                      {account.isActive ? "Active" : "Inactive"}
+                    </Badge>
+                  )}
+                  <Badge variant="outline">{account.provider}</Badge>
                 </div>
 
-                {domain.warmingStatus === "WARMING" && (
+                {account.isWarmingAccount && account.warmingStatus === "WARMING" && (
                   <div className="space-y-2">
                     <div className="flex justify-between text-sm">
-                      <span>Day {domain.currentDay}</span>
-                      <span>{domain.sentToday}/{domain.dailyTarget} sent today</span>
+                      <span>Day {account.currentDay}</span>
+                      <span>{account.sentToday}/{account.dailyTarget} sent today</span>
                     </div>
-                    <Progress value={domain.sentToday} max={domain.dailyTarget || 1} />
+                    <Progress value={account.sentToday} max={account.dailyTarget || 1} />
                   </div>
                 )}
 
-                <div className="flex gap-2">
-                  {domain.warmingStatus === "NOT_STARTED" && domain.isVerified && (
-                    <Button
-                      size="sm"
-                      onClick={() => handleWarmingAction("start")}
-                      disabled={actionLoading}
-                    >
-                      <Play className="h-4 w-4 mr-1" />
-                      Start Warming
-                    </Button>
-                  )}
-                  {domain.warmingStatus === "WARMING" && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleWarmingAction("pause")}
-                      disabled={actionLoading}
-                    >
-                      <Pause className="h-4 w-4 mr-1" />
-                      Pause
-                    </Button>
-                  )}
-                  {(domain.warmingStatus === "PAUSED" || domain.warmingStatus === "ISSUES") && (
-                    <Button
-                      size="sm"
-                      onClick={() => handleWarmingAction("resume")}
-                      disabled={actionLoading}
-                    >
-                      <RotateCcw className="h-4 w-4 mr-1" />
-                      Resume
-                    </Button>
-                  )}
-                </div>
+                {account.isWarmingAccount && (
+                  <div className="flex gap-2">
+                    {account.warmingStatus === "NOT_STARTED" && account.smtpHost && (
+                      <Button
+                        size="sm"
+                        onClick={() => handleWarmingAction("start")}
+                        disabled={actionLoading}
+                      >
+                        <Play className="h-4 w-4 mr-1" />
+                        Start Warming
+                      </Button>
+                    )}
+                    {account.warmingStatus === "WARMING" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleWarmingAction("pause")}
+                        disabled={actionLoading}
+                      >
+                        <Pause className="h-4 w-4 mr-1" />
+                        Pause
+                      </Button>
+                    )}
+                    {(account.warmingStatus === "PAUSED" || account.warmingStatus === "ISSUES") && (
+                      <Button
+                        size="sm"
+                        onClick={() => handleWarmingAction("resume")}
+                        disabled={actionLoading}
+                      >
+                        <RotateCcw className="h-4 w-4 mr-1" />
+                        Resume
+                      </Button>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -329,38 +325,38 @@ export default function DomainDetailPage() {
                     <Mail className="h-4 w-4" />
                     Total Emails
                   </span>
-                  <span className="font-medium">{domain._count.emailLogs}</span>
+                  <span className="font-medium">{account._count.emailLogs}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2 text-muted-foreground">
                     <TrendingUp className="h-4 w-4" />
-                    Seed Addresses
+                    Engagement Logs
                   </span>
-                  <span className="font-medium">{domain._count.seedAddresses}</span>
+                  <span className="font-medium">{account._count.engagementLogs}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="flex items-center gap-2 text-muted-foreground">
                     <Calendar className="h-4 w-4" />
                     Content Pool
                   </span>
-                  <span className="font-medium">{domain._count.generatedContent}</span>
+                  <span className="font-medium">{account._count.generatedContent}</span>
                 </div>
-                {domain.warmingStartedAt && (
+                {account.warmingStartedAt && (
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-muted-foreground">Started</span>
                     <span className="font-medium">
-                      {new Date(domain.warmingStartedAt).toLocaleDateString()}
+                      {new Date(account.warmingStartedAt).toLocaleDateString()}
                     </span>
                   </div>
                 )}
-                {getNextSendTime(domain) && (
+                {getNextSendTime(account) && (
                   <div className="flex items-center justify-between text-sm">
                     <span className="flex items-center gap-2 text-muted-foreground">
                       <Clock className="h-4 w-4" />
                       Next Send
                     </span>
                     <span className="font-medium text-xs">
-                      {getNextSendTime(domain)}
+                      {getNextSendTime(account)}
                     </span>
                   </div>
                 )}
@@ -396,7 +392,6 @@ export default function DomainDetailPage() {
                   <option value="DELIVERED">Delivered</option>
                   <option value="OPENED">Opened</option>
                   <option value="BOUNCED">Bounced</option>
-                  <option value="COMPLAINED">Complained</option>
                   <option value="FAILED">Failed</option>
                 </select>
                 <Button
@@ -409,15 +404,13 @@ export default function DomainDetailPage() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              {domain.warmingStatus === "WARMING" && (
+              {account.warmingStatus === "WARMING" && (
                 <div className="mx-4 mb-3 flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-700">
                   <Clock className="h-4 w-4 shrink-0" />
                   <span>
-                    <strong>Next batch:</strong> {getNextSendTime(domain) || "—"}
+                    <strong>Next batch:</strong> {getNextSendTime(account) || "—"}
                     {" · "}
-                    <strong>{domain.dailyTarget - domain.sentToday}</strong> remaining today
-                    {" · "}
-                    Sending ~{Math.max(1, Math.ceil((domain.dailyTarget - domain.sentToday) / Math.max(1, (22 - new Date().getUTCHours()) * 6)))} per batch
+                    <strong>{account.dailyTarget - account.sentToday}</strong> remaining today
                   </span>
                 </div>
               )}
@@ -429,7 +422,6 @@ export default function DomainDetailPage() {
                       <th className="text-left p-3 font-medium">To</th>
                       <th className="text-left p-3 font-medium">Subject</th>
                       <th className="text-left p-3 font-medium">Status</th>
-                      <th className="text-left p-3 font-medium">Tracking</th>
                       <th className="text-left p-3 font-medium">Sent</th>
                     </tr>
                   </thead>
@@ -455,38 +447,6 @@ export default function DomainDetailPage() {
                               {statusInfo.label}
                             </span>
                           </td>
-                          <td className="p-3">
-                            <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
-                              {email.deliveredAt && (
-                                <span className="text-green-600">
-                                  Delivered {new Date(email.deliveredAt).toLocaleTimeString()}
-                                </span>
-                              )}
-                              {email.openedAt && (
-                                <span className="text-purple-600">
-                                  Opened {new Date(email.openedAt).toLocaleTimeString()}
-                                </span>
-                              )}
-                              {email.bouncedAt && (
-                                <span className="text-red-600">
-                                  Bounced {new Date(email.bouncedAt).toLocaleTimeString()}
-                                </span>
-                              )}
-                              {email.complainedAt && (
-                                <span className="text-orange-600">
-                                  Complained {new Date(email.complainedAt).toLocaleTimeString()}
-                                </span>
-                              )}
-                              {email.failedAt && (
-                                <span className="text-red-600" title={email.failureReason || ""}>
-                                  Failed {new Date(email.failedAt).toLocaleTimeString()}
-                                </span>
-                              )}
-                              {!email.deliveredAt && !email.openedAt && !email.bouncedAt && !email.failedAt && !email.complainedAt && (
-                                <span>Awaiting delivery</span>
-                              )}
-                            </div>
-                          </td>
                           <td className="p-3 text-xs text-muted-foreground whitespace-nowrap">
                             {new Date(email.sentAt).toLocaleString()}
                           </td>
@@ -495,8 +455,8 @@ export default function DomainDetailPage() {
                     })}
                     {(!emailData || emailData.emails.length === 0) && (
                       <tr>
-                        <td colSpan={6} className="p-8 text-center text-muted-foreground">
-                          No emails sent yet. Start warming to begin sending.
+                        <td colSpan={5} className="p-8 text-center text-muted-foreground">
+                          No emails sent yet.
                         </td>
                       </tr>
                     )}
@@ -588,82 +548,42 @@ export default function DomainDetailPage() {
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-center text-muted-foreground py-8">
-                    No data yet.
-                  </p>
+                  <p className="text-center text-muted-foreground py-8">No data yet.</p>
                 )}
               </CardContent>
             </Card>
           </div>
         </TabsContent>
 
-        {/* DNS TAB */}
-        <TabsContent value="dns">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>DNS Health</CardTitle>
-              <Button variant="outline" size="sm" onClick={handleVerify} disabled={actionLoading}>
-                <RefreshCw className="h-4 w-4 mr-1" />
-                Re-check
-              </Button>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {[
-                  { name: "SPF", valid: domain.spfValid },
-                  { name: "DKIM", valid: domain.dkimValid },
-                  { name: "DMARC", valid: domain.dmarcValid },
-                  { name: "MX", valid: domain.mxValid },
-                ].map((record) => (
-                  <div
-                    key={record.name}
-                    className="flex items-center justify-between rounded-lg border p-3"
-                  >
-                    <div className="flex items-center gap-3">
-                      {record.valid ? (
-                        <Check className="h-5 w-5 text-emerald-500" />
-                      ) : (
-                        <X className="h-5 w-5 text-red-500" />
-                      )}
-                      <span className="font-medium">{record.name}</span>
-                    </div>
-                    <Badge variant={record.valid ? "success" : "destructive"}>
-                      {record.valid ? "Verified" : "Not Verified"}
-                    </Badge>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         {/* SETTINGS TAB */}
         <TabsContent value="settings">
           <Card>
             <CardHeader>
-              <CardTitle>Warming Configuration</CardTitle>
+              <CardTitle>Account Configuration</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Warming Schedule</label>
-                <Select
-                  value={domain.warmingSchedule}
-                  onChange={(e) => handleScheduleChange(e.target.value)}
-                >
-                  <option value="CONSERVATIVE">Conservative (30 days)</option>
-                  <option value="MODERATE">Moderate (21 days)</option>
-                  <option value="AGGRESSIVE">Aggressive (14 days)</option>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Conservative: slower ramp, safer. Aggressive: faster but higher risk.
-                </p>
-              </div>
+              {account.isWarmingAccount && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Warming Schedule</label>
+                  <Select
+                    value={account.warmingSchedule}
+                    onChange={(e) => handleScheduleChange(e.target.value)}
+                  >
+                    <option value="CONSERVATIVE">Conservative (30 days)</option>
+                    <option value="MODERATE">Moderate (21 days)</option>
+                    <option value="AGGRESSIVE">Aggressive (14 days)</option>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Conservative: slower ramp, safer. Aggressive: faster but higher risk.
+                  </p>
+                </div>
+              )}
 
-              {domain.businessSummary && (
+              {account.businessSummary && (
                 <div className="space-y-2">
                   <label className="text-sm font-medium">AI Business Summary</label>
                   <p className="text-sm text-muted-foreground rounded-lg border p-3">
-                    {domain.businessSummary}
+                    {account.businessSummary}
                   </p>
                 </div>
               )}

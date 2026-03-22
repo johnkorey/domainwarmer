@@ -13,13 +13,13 @@ export interface ReputationData {
 }
 
 export async function calculateReputation(
-  domainId: string
+  accountId: string
 ): Promise<ReputationData> {
   const sevenDaysAgo = subDays(new Date(), 7);
 
   const stats = await prisma.dailyStat.findMany({
     where: {
-      domainId,
+      accountId,
       date: { gte: sevenDaysAgo },
     },
   });
@@ -55,7 +55,7 @@ export async function calculateReputation(
 
   // Calculate webmail engagement metrics
   const webmailEngagement = await getWebmailEngagementMetrics(
-    domainId,
+    accountId,
     sevenDaysAgo
   );
 
@@ -65,7 +65,6 @@ export async function calculateReputation(
 
   let score: number;
   if (hasWebmail) {
-    // Reweighted formula including webmail engagement (20%)
     const webmailScore =
       webmailEngagement.spamRescueRate * 0.6 +
       webmailEngagement.webmailOpenRate * 0.4;
@@ -82,7 +81,6 @@ export async function calculateReputation(
       )
     );
   } else {
-    // Original formula when no webmail accounts configured
     score = Math.min(
       100,
       Math.max(
@@ -108,14 +106,13 @@ export async function calculateReputation(
 }
 
 async function getWebmailEngagementMetrics(
-  domainId: string,
+  accountId: string,
   since: Date
 ): Promise<{ webmailOpenRate: number; spamRescueRate: number }> {
-  // Get engagement logs linked to this domain's emails
   const engagementLogs = await prisma.engagementLog.findMany({
     where: {
       performedAt: { gte: since },
-      emailLog: { domainId },
+      emailLog: { accountId },
     },
     select: { action: true },
   });
@@ -130,21 +127,16 @@ async function getWebmailEngagementMetrics(
   ).length;
   const total = engagementLogs.length;
 
-  // Count distinct emails that were in spam vs total engagement
-  const spamRelated = engagementLogs.filter(
-    (l) => l.action === "MOVED_TO_INBOX" || l.action === "MARKED_NOT_SPAM"
-  ).length;
-
   return {
     webmailOpenRate: total > 0 ? opened / total : 0,
-    spamRescueRate: spamRelated > 0 ? movedToInbox / Math.max(1, movedToInbox) : 0,
+    spamRescueRate: movedToInbox > 0 ? 1 : 0,
   };
 }
 
-export async function updateDomainReputation(domainId: string): Promise<number> {
-  const { score } = await calculateReputation(domainId);
-  await prisma.domain.update({
-    where: { id: domainId },
+export async function updateAccountReputation(accountId: string): Promise<number> {
+  const { score } = await calculateReputation(accountId);
+  await prisma.webmailAccount.update({
+    where: { id: accountId },
     data: { reputationScore: score },
   });
   return score;

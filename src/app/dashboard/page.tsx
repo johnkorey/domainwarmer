@@ -7,30 +7,29 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { WarmthIndicator } from "@/components/domains/warmth-indicator";
-import { WarmingStatusBadge, DomainStatusBadge } from "@/components/domains/status-badge";
+import { WarmingStatusBadge } from "@/components/domains/status-badge";
 import { Button } from "@/components/ui/button";
-import { Globe, Mail, Flame, TrendingUp, Plus } from "lucide-react";
+import { Mail, Flame, TrendingUp, Plus } from "lucide-react";
 
-interface DomainData {
+interface AccountData {
   id: string;
-  domain: string;
-  status: "PENDING" | "VERIFYING" | "ACTIVE" | "ERROR";
+  email: string;
+  provider: string;
+  isWarmingAccount: boolean;
   warmingStatus: "NOT_STARTED" | "WARMING" | "READY" | "PAUSED" | "ISSUES";
   reputationScore: number;
   currentDay: number;
   dailyTarget: number;
   sentToday: number;
-  spfValid: boolean;
-  dkimValid: boolean;
-  warmingSchedule: string;
+  isActive: boolean;
 }
 
 export default function DashboardPage() {
-  const [domains, setDomains] = useState<DomainData[]>([]);
+  const [accounts, setAccounts] = useState<AccountData[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("/api/domains")
+    fetch("/api/webmail")
       .then((res) => {
         if (res.status === 401) {
           window.location.href = "/login";
@@ -38,21 +37,22 @@ export default function DashboardPage() {
         }
         return res.json();
       })
-      .then(setDomains)
+      .then(setAccounts)
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
-  const totalDomains = domains.length;
-  const activelyWarming = domains.filter((d) => d.warmingStatus === "WARMING").length;
-  const readyDomains = domains.filter((d) => d.warmingStatus === "READY").length;
+  const warmingAccounts = accounts.filter((a) => a.isWarmingAccount);
+  const engagementAccounts = accounts.filter((a) => !a.isWarmingAccount);
+  const activelyWarming = warmingAccounts.filter((a) => a.warmingStatus === "WARMING").length;
+  const readyAccounts = warmingAccounts.filter((a) => a.warmingStatus === "READY").length;
   const avgReputation =
-    domains.length > 0
+    warmingAccounts.length > 0
       ? Math.round(
-          domains.reduce((sum, d) => sum + d.reputationScore, 0) / domains.length
+          warmingAccounts.reduce((sum, a) => sum + a.reputationScore, 0) / warmingAccounts.length
         )
       : 0;
-  const totalSentToday = domains.reduce((sum, d) => sum + d.sentToday, 0);
+  const totalSentToday = warmingAccounts.reduce((sum, a) => sum + a.sentToday, 0);
 
   if (loading) {
     return (
@@ -66,12 +66,12 @@ export default function DashboardPage() {
     <>
       <PageHeader
         title="Dashboard"
-        description="Overview of your domain warming campaigns"
+        description="Overview of your email warming campaigns"
         actions={
-          <Link href="/dashboard/domains/new">
+          <Link href="/dashboard/accounts/new">
             <Button>
               <Plus className="h-4 w-4 mr-2" />
-              Add Domain
+              Add Account
             </Button>
           </Link>
         }
@@ -81,13 +81,13 @@ export default function DashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Domains</CardTitle>
-            <Globe className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">Total Accounts</CardTitle>
+            <Mail className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totalDomains}</div>
+            <div className="text-2xl font-bold">{accounts.length}</div>
             <p className="text-xs text-muted-foreground">
-              {readyDomains} ready for campaigns
+              {warmingAccounts.length} warming, {engagementAccounts.length} engagement
             </p>
           </CardContent>
         </Card>
@@ -99,7 +99,9 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{activelyWarming}</div>
-            <p className="text-xs text-muted-foreground">domains in progress</p>
+            <p className="text-xs text-muted-foreground">
+              {readyAccounts} ready
+            </p>
           </CardContent>
         </Card>
 
@@ -121,75 +123,96 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{avgReputation}/100</div>
-            <p className="text-xs text-muted-foreground">across all domains</p>
+            <p className="text-xs text-muted-foreground">across warming accounts</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Domain Grid */}
-      {domains.length === 0 ? (
+      {/* Warming Accounts */}
+      {warmingAccounts.length === 0 && engagementAccounts.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
-            <Globe className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold">No domains yet</h3>
+            <Mail className="h-12 w-12 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold">No accounts yet</h3>
             <p className="text-muted-foreground mb-4">
-              Add your first domain to start warming
+              Add your first email account to start warming
             </p>
-            <Link href="/dashboard/domains/new">
+            <Link href="/dashboard/accounts/new">
               <Button>
                 <Plus className="h-4 w-4 mr-2" />
-                Add Domain
+                Add Account
               </Button>
             </Link>
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {domains.map((domain) => (
-            <Link key={domain.id} href={`/dashboard/domains/${domain.id}`}>
+          {warmingAccounts.map((account) => (
+            <Link key={account.id} href={`/dashboard/accounts/${account.id}`}>
               <Card className="hover:shadow-md transition-shadow cursor-pointer">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">{domain.domain}</CardTitle>
-                    <WarmingStatusBadge status={domain.warmingStatus} />
+                    <CardTitle className="text-base truncate">{account.email}</CardTitle>
+                    <WarmingStatusBadge status={account.warmingStatus} />
                   </div>
                   <div className="flex gap-2">
-                    <DomainStatusBadge status={domain.status} />
-                    <Badge variant={domain.spfValid && domain.dkimValid ? "success" : "outline"} className="text-xs">
-                      DNS {domain.spfValid && domain.dkimValid ? "OK" : "Pending"}
-                    </Badge>
+                    <Badge variant="outline" className="text-xs">{account.provider}</Badge>
+                    <Badge variant="secondary" className="text-xs">Warming</Badge>
                   </div>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center justify-between">
                     <div className="space-y-2 flex-1 mr-4">
-                      {domain.warmingStatus === "WARMING" && (
+                      {account.warmingStatus === "WARMING" && (
                         <>
                           <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>Day {domain.currentDay}</span>
+                            <span>Day {account.currentDay}</span>
                             <span>
-                              {domain.sentToday}/{domain.dailyTarget} today
+                              {account.sentToday}/{account.dailyTarget} today
                             </span>
                           </div>
                           <Progress
-                            value={domain.sentToday}
-                            max={domain.dailyTarget || 1}
+                            value={account.sentToday}
+                            max={account.dailyTarget || 1}
                           />
                         </>
                       )}
-                      {domain.warmingStatus === "READY" && (
+                      {account.warmingStatus === "READY" && (
                         <p className="text-sm text-emerald-600 font-medium">
-                          Ready for campaigns
+                          Warming complete
                         </p>
                       )}
-                      {domain.warmingStatus === "NOT_STARTED" && (
+                      {account.warmingStatus === "NOT_STARTED" && (
                         <p className="text-sm text-muted-foreground">
                           Warming not started
                         </p>
                       )}
                     </div>
-                    <WarmthIndicator score={domain.reputationScore} size="sm" showLabel={false} />
+                    <WarmthIndicator score={account.reputationScore} size="sm" showLabel={false} />
                   </div>
+                </CardContent>
+              </Card>
+            </Link>
+          ))}
+          {engagementAccounts.map((account) => (
+            <Link key={account.id} href={`/dashboard/accounts/${account.id}`}>
+              <Card className="hover:shadow-md transition-shadow cursor-pointer">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base truncate">{account.email}</CardTitle>
+                    <Badge variant={account.isActive ? "success" : "outline"}>
+                      {account.isActive ? "Active" : "Inactive"}
+                    </Badge>
+                  </div>
+                  <div className="flex gap-2">
+                    <Badge variant="outline" className="text-xs">{account.provider}</Badge>
+                    <Badge variant="secondary" className="text-xs">Engagement</Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    Engagement-only account
+                  </p>
                 </CardContent>
               </Card>
             </Link>

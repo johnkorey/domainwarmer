@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
 import { encrypt, decrypt } from "@/lib/encryption";
-import { validateApiKey } from "@/lib/mailgun/client";
 import { maskApiKey } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
@@ -21,18 +20,10 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       ...settings,
-      mailgunApiKey: settings.mailgunApiKey
-        ? reveal ? decrypt(settings.mailgunApiKey) : maskApiKey(decrypt(settings.mailgunApiKey))
-        : null,
       openRouterApiKey: settings.openRouterApiKey
         ? reveal ? decrypt(settings.openRouterApiKey) : maskApiKey(decrypt(settings.openRouterApiKey))
         : null,
-      webhookSigningKey: settings.webhookSigningKey
-        ? reveal ? decrypt(settings.webhookSigningKey) : "••••••••"
-        : null,
-      hasMailgunKey: !!settings.mailgunApiKey,
       hasOpenRouterKey: !!settings.openRouterApiKey,
-      hasWebhookKey: !!settings.webhookSigningKey,
     });
   } catch (err) {
     if (err instanceof Error && err.message === "Unauthorized") {
@@ -48,24 +39,8 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const updateData: Record<string, unknown> = {};
 
-    if (body.mailgunApiKey !== undefined) {
-      // Validate the key before saving
-      const isValid = await validateApiKey(body.mailgunApiKey);
-      if (!isValid) {
-        return NextResponse.json(
-          { error: "Invalid Mailgun API key" },
-          { status: 400 }
-        );
-      }
-      updateData.mailgunApiKey = encrypt(body.mailgunApiKey);
-    }
-
     if (body.openRouterApiKey !== undefined) {
       updateData.openRouterApiKey = encrypt(body.openRouterApiKey);
-    }
-
-    if (body.webhookSigningKey !== undefined) {
-      updateData.webhookSigningKey = encrypt(body.webhookSigningKey);
     }
 
     if (body.defaultFromName !== undefined) {
@@ -92,7 +67,6 @@ export async function PATCH(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      hasMailgunKey: !!settings.mailgunApiKey,
       hasOpenRouterKey: !!settings.openRouterApiKey,
     });
   } catch (err) {

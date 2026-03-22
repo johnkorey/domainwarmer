@@ -11,7 +11,6 @@ import {
 import { CONTENT_POOL_GENERATE } from "../constants";
 
 function stripMarkdownJson(text: string): string {
-  // Strip ```json ... ``` or ``` ... ``` wrappers
   const match = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
   return match ? match[1].trim() : text.trim();
 }
@@ -58,14 +57,15 @@ export async function generateBusinessSummary(
 }
 
 export async function generateEmailContent(
-  domainId: string,
+  accountId: string,
   count: number = CONTENT_POOL_GENERATE
 ): Promise<void> {
-  const domain = await prisma.domain.findUnique({ where: { id: domainId } });
-  if (!domain) throw new Error("Domain not found");
+  const account = await prisma.webmailAccount.findUnique({ where: { id: accountId } });
+  if (!account) throw new Error("Account not found");
 
+  const emailDomain = account.email.split("@")[1];
   const summary =
-    domain.businessSummary || `Business website at ${domain.domain}`;
+    account.businessSummary || `Business website at ${emailDomain}`;
 
   for (let i = 0; i < count; i++) {
     const tone = EMAIL_TONES[Math.floor(Math.random() * EMAIL_TONES.length)];
@@ -81,7 +81,7 @@ export async function generateEmailContent(
           },
           {
             role: "user",
-            content: emailGenerationPrompt(domain.domain, summary, tone, topic),
+            content: emailGenerationPrompt(emailDomain, summary, tone, topic),
           },
         ],
         { temperature: 0.9, jsonMode: true }
@@ -92,7 +92,7 @@ export async function generateEmailContent(
       if (parsed.subject && parsed.body) {
         await prisma.generatedContent.create({
           data: {
-            domainId,
+            accountId,
             senderName: parsed.senderName || "Team",
             subject: parsed.subject,
             body: parsed.body,
@@ -142,9 +142,9 @@ export async function generateReplyContent(
   }
 }
 
-export async function getAvailableContent(domainId: string) {
+export async function getAvailableContent(accountId: string) {
   return prisma.generatedContent.findFirst({
-    where: { domainId, usedAt: null },
+    where: { accountId, usedAt: null },
     orderBy: { createdAt: "asc" },
   });
 }
@@ -156,8 +156,8 @@ export async function markContentUsed(contentId: string) {
   });
 }
 
-export async function getContentPoolSize(domainId: string): Promise<number> {
+export async function getContentPoolSize(accountId: string): Promise<number> {
   return prisma.generatedContent.count({
-    where: { domainId, usedAt: null },
+    where: { accountId, usedAt: null },
   });
 }

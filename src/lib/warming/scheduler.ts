@@ -29,12 +29,6 @@ export function initScheduler(): void {
     triggerCron("/api/cron/warming");
   });
 
-  // DNS health check: every 6 hours
-  cron.schedule("0 */6 * * *", () => {
-    console.log("[Cron] Running DNS health check...");
-    triggerCron("/api/cron/dns-check");
-  });
-
   // Content pool refill: every 2 hours
   cron.schedule("0 */2 * * *", () => {
     console.log("[Cron] Refilling content pool...");
@@ -53,5 +47,5 @@ export function initScheduler(): void {
     triggerCron("/api/cron/webmail-engagement");
   });
 
-  console.log("Warming scheduler initialized with 5 cron jobs.");
+  console.log("Warming scheduler initialized with 4 cron jobs.");
 }

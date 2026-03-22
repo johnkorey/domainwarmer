@@ -13,23 +13,23 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const domains = await prisma.domain.findMany({
-      where: { warmingStatus: "WARMING" },
+    const accounts = await prisma.webmailAccount.findMany({
+      where: { isWarmingAccount: true, warmingStatus: "WARMING" },
     });
 
     let generated = 0;
 
-    for (const domain of domains) {
-      const poolSize = await getContentPoolSize(domain.id);
+    for (const account of accounts) {
+      const poolSize = await getContentPoolSize(account.id);
       if (poolSize < CONTENT_POOL_MIN) {
-        await generateEmailContent(domain.id, CONTENT_POOL_GENERATE);
+        await generateEmailContent(account.id, CONTENT_POOL_GENERATE);
         generated++;
       }
     }
 
     return NextResponse.json({
       success: true,
-      domainsRefilled: generated,
+      accountsRefilled: generated,
     });
   } catch (err) {
     console.error("Content generation cron error:", err);

@@ -9,12 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Check, Eye, EyeOff, Key, Lock, Save } from "lucide-react";
 
 interface SettingsData {
-  mailgunApiKey: string | null;
   openRouterApiKey: string | null;
-  webhookSigningKey: string | null;
-  hasMailgunKey: boolean;
   hasOpenRouterKey: boolean;
-  hasWebhookKey: boolean;
   defaultFromName: string;
   maxDailyGlobalEmails: number;
   warmingEnabled: boolean;
@@ -26,9 +22,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
 
   // Form fields
-  const [mailgunKey, setMailgunKey] = useState("");
   const [openRouterKey, setOpenRouterKey] = useState("");
-  const [webhookKey, setWebhookKey] = useState("");
   const [defaultFromName, setDefaultFromName] = useState("Team");
   const [maxDailyEmails, setMaxDailyEmails] = useState(500);
   const [warmingEnabled, setWarmingEnabled] = useState(true);
@@ -43,7 +37,6 @@ export default function SettingsPage() {
   const [passwordSaved, setPasswordSaved] = useState(false);
 
   // UI state
-  const [showMailgun, setShowMailgun] = useState(false);
   const [showOpenRouter, setShowOpenRouter] = useState(false);
   const [revealedKeys, setRevealedKeys] = useState<SettingsData | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
@@ -68,18 +61,6 @@ export default function SettingsPage() {
     setLoading(false);
   }
 
-  async function toggleReveal(field: "mailgun" | "openRouter") {
-    const isShowing = field === "mailgun" ? showMailgun : showOpenRouter;
-    if (!isShowing && !revealedKeys) {
-      const res = await fetch("/api/settings?reveal=true");
-      if (res.ok) {
-        setRevealedKeys(await res.json());
-      }
-    }
-    if (field === "mailgun") setShowMailgun(!showMailgun);
-    else setShowOpenRouter(!showOpenRouter);
-  }
-
   async function saveField(field: string, value: unknown) {
     setSaving(field);
     await fetch("/api/settings", {
@@ -92,11 +73,18 @@ export default function SettingsPage() {
     setSaved(field);
     setTimeout(() => setSaved(null), 2000);
 
-    // Clear input fields and revealed keys after saving API keys
-    if (field === "mailgunApiKey") setMailgunKey("");
     if (field === "openRouterApiKey") setOpenRouterKey("");
-    if (field === "webhookSigningKey") setWebhookKey("");
     setRevealedKeys(null);
+  }
+
+  async function toggleReveal() {
+    if (!showOpenRouter && !revealedKeys) {
+      const res = await fetch("/api/settings?reveal=true");
+      if (res.ok) {
+        setRevealedKeys(await res.json());
+      }
+    }
+    setShowOpenRouter(!showOpenRouter);
   }
 
   async function changePassword() {
@@ -149,65 +137,6 @@ export default function SettingsPage() {
       />
 
       <div className="grid gap-6">
-        {/* Mailgun API Key */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Key className="h-4 w-4" />
-                  Mailgun API Key
-                </CardTitle>
-                <CardDescription>
-                  Required for sending emails and managing domains
-                </CardDescription>
-              </div>
-              {settings?.hasMailgunKey && (
-                <Badge variant="success">Connected</Badge>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Input
-                  type={showMailgun ? "text" : "password"}
-                  placeholder={settings?.hasMailgunKey ? "Enter new key to update" : "key-xxxxxxxxxxxxxxxx"}
-                  value={mailgunKey}
-                  onChange={(e) => setMailgunKey(e.target.value)}
-                />
-                <button
-                  type="button"
-                  onClick={() => toggleReveal("mailgun")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground"
-                >
-                  {showMailgun ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              <Button
-                onClick={() => saveField("mailgunApiKey", mailgunKey)}
-                disabled={!mailgunKey || saving === "mailgunApiKey"}
-              >
-                {saved === "mailgunApiKey" ? (
-                  <Check className="h-4 w-4" />
-                ) : saving === "mailgunApiKey" ? (
-                  "Validating..."
-                ) : (
-                  <>
-                    <Save className="h-4 w-4 mr-1" />
-                    Save
-                  </>
-                )}
-              </Button>
-            </div>
-            {settings?.hasMailgunKey && (
-              <p className="text-xs text-muted-foreground mt-2 font-mono break-all">
-                Current: {showMailgun && revealedKeys?.mailgunApiKey ? revealedKeys.mailgunApiKey : settings.mailgunApiKey}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
         {/* OpenRouter API Key */}
         <Card>
           <CardHeader>
@@ -218,7 +147,7 @@ export default function SettingsPage() {
                   OpenRouter API Key
                 </CardTitle>
                 <CardDescription>
-                  Required for AI-powered email content generation (uses Claude Sonnet)
+                  Required for AI-powered email content generation
                 </CardDescription>
               </div>
               {settings?.hasOpenRouterKey && (
@@ -237,7 +166,7 @@ export default function SettingsPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => toggleReveal("openRouter")}
+                  onClick={toggleReveal}
                   className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground"
                 >
                   {showOpenRouter ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -262,36 +191,6 @@ export default function SettingsPage() {
                 Current: {showOpenRouter && revealedKeys?.openRouterApiKey ? revealedKeys.openRouterApiKey : settings.openRouterApiKey}
               </p>
             )}
-          </CardContent>
-        </Card>
-
-        {/* Webhook Signing Key */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Key className="h-4 w-4" />
-              Mailgun Webhook Signing Key
-            </CardTitle>
-            <CardDescription>
-              Optional. Used to verify incoming Mailgun webhook events.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-2">
-              <Input
-                type="password"
-                placeholder={settings?.hasWebhookKey ? "Enter new key to update" : "Webhook signing key"}
-                value={webhookKey}
-                onChange={(e) => setWebhookKey(e.target.value)}
-                className="flex-1"
-              />
-              <Button
-                onClick={() => saveField("webhookSigningKey", webhookKey)}
-                disabled={!webhookKey || saving === "webhookSigningKey"}
-              >
-                {saved === "webhookSigningKey" ? <Check className="h-4 w-4" /> : <><Save className="h-4 w-4 mr-1" />Save</>}
-              </Button>
-            </div>
           </CardContent>
         </Card>
 
@@ -361,7 +260,7 @@ export default function SettingsPage() {
               <div>
                 <p className="font-medium">Webmail Engagement</p>
                 <p className="text-sm text-muted-foreground">
-                  Automatically engage with warming emails via connected webmail accounts
+                  Automatically engage with warming emails via connected accounts
                 </p>
               </div>
               <Button
@@ -377,6 +276,7 @@ export default function SettingsPage() {
             </div>
           </CardContent>
         </Card>
+
         {/* Change Password */}
         <Card>
           <CardHeader>

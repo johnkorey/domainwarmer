@@ -4,16 +4,16 @@ import { requireAuth } from "@/lib/auth";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ domainId: string }> }
+  { params }: { params: Promise<{ accountId: string }> }
 ) {
   try {
     await requireAuth();
-    const { domainId } = await params;
+    const { accountId } = await params;
     const { searchParams } = new URL(request.url);
     const from = searchParams.get("from");
     const to = searchParams.get("to");
 
-    const where: Record<string, unknown> = { domainId };
+    const where: Record<string, unknown> = { accountId };
     if (from || to) {
       where.date = {};
       if (from) (where.date as Record<string, unknown>).gte = new Date(from);

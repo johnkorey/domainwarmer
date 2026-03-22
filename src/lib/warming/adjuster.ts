@@ -16,16 +16,16 @@ export interface AdjustmentResult {
 }
 
 export async function adjustWarmingPace(
-  domainId: string
+  accountId: string
 ): Promise<AdjustmentResult> {
-  const domain = await prisma.domain.findUnique({ where: { id: domainId } });
-  if (!domain) return { action: "pause", reason: "Domain not found" };
+  const account = await prisma.webmailAccount.findUnique({ where: { id: accountId } });
+  if (!account) return { action: "pause", reason: "Account not found" };
 
   // Check last 24h metrics
   const oneDayAgo = subHours(new Date(), 24);
   const recentEmails = await prisma.emailLog.findMany({
     where: {
-      domainId,
+      accountId,
       sentAt: { gte: oneDayAgo },
     },
     select: { status: true },
@@ -44,8 +44,8 @@ export async function adjustWarmingPace(
     const complaintRate = recentComplaints / recentTotal;
 
     if (bounceRate > BOUNCE_RATE_LIMIT) {
-      await prisma.domain.update({
-        where: { id: domainId },
+      await prisma.webmailAccount.update({
+        where: { id: accountId },
         data: {
           warmingStatus: WarmingStatus.ISSUES,
           pausedAt: new Date(),
@@ -58,8 +58,8 @@ export async function adjustWarmingPace(
     }
 
     if (complaintRate > COMPLAINT_RATE_LIMIT) {
-      await prisma.domain.update({
-        where: { id: domainId },
+      await prisma.webmailAccount.update({
+        where: { id: accountId },
         data: {
           warmingStatus: WarmingStatus.ISSUES,
           pausedAt: new Date(),
@@ -73,11 +73,11 @@ export async function adjustWarmingPace(
   }
 
   // Check overall reputation
-  const { score } = await calculateReputation(domainId);
+  const { score } = await calculateReputation(accountId);
 
   if (score < REPUTATION_THRESHOLDS.CAUTION && score > 0) {
-    await prisma.domain.update({
-      where: { id: domainId },
+    await prisma.webmailAccount.update({
+      where: { id: accountId },
       data: {
         warmingStatus: WarmingStatus.ISSUES,
         pausedAt: new Date(),
@@ -90,9 +90,9 @@ export async function adjustWarmingPace(
   }
 
   if (score >= REPUTATION_THRESHOLDS.CAUTION && score < REPUTATION_THRESHOLDS.GOOD) {
-    const newTarget = Math.max(2, Math.floor(domain.dailyTarget / 2));
-    await prisma.domain.update({
-      where: { id: domainId },
+    const newTarget = Math.max(2, Math.floor(account.dailyTarget / 2));
+    await prisma.webmailAccount.update({
+      where: { id: accountId },
       data: { dailyTarget: newTarget },
     });
     return {
@@ -103,18 +103,18 @@ export async function adjustWarmingPace(
   }
 
   // Check if warming is complete
-  const scheduleLength = getScheduleLength(domain.warmingSchedule);
+  const scheduleLength = getScheduleLength(account.warmingSchedule);
   if (
-    domain.currentDay >= scheduleLength &&
+    account.currentDay >= scheduleLength &&
     score >= REPUTATION_THRESHOLDS.EXCELLENT
   ) {
-    await prisma.domain.update({
-      where: { id: domainId },
+    await prisma.webmailAccount.update({
+      where: { id: accountId },
       data: { warmingStatus: WarmingStatus.READY },
     });
     return {
       action: "ready",
-      reason: `Warming complete! Day ${domain.currentDay}/${scheduleLength}, reputation ${score}`,
+      reason: `Warming complete! Day ${account.currentDay}/${scheduleLength}, reputation ${score}`,
     };
   }
 

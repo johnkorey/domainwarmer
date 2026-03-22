@@ -2,7 +2,7 @@ import { WebmailProvider } from "@prisma/client";
 import { ProviderConfig } from "./types";
 
 const PROVIDER_CONFIGS: Record<
-  Exclude<WebmailProvider, "ROUNDCUBE">,
+  Exclude<WebmailProvider, "CPANEL">,
   ProviderConfig
 > = {
   GMAIL: {
@@ -46,14 +46,14 @@ export function getProviderConfig(
   customSmtpHost?: string | null,
   customSmtpPort?: number | null
 ): ProviderConfig {
-  if (provider === "ROUNDCUBE") {
+  if (provider === "CPANEL") {
     return {
       imapHost: customHost || "localhost",
       imapPort: customImapPort || 993,
       spamFolder: "Junk",
       smtpHost: customSmtpHost || customHost || "localhost",
-      smtpPort: customSmtpPort || 587,
-      smtpSecure: false,
+      smtpPort: customSmtpPort || 465,
+      smtpSecure: true,
     };
   }
 

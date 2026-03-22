@@ -1,14 +1,13 @@
 import { prisma } from "../prisma";
 import { WarmingStatus } from "@prisma/client";
-import { sendEmail } from "../mailgun/messages";
+import { sendViaSmtp } from "../smtp/sender";
 import {
   getAvailableContent,
   markContentUsed,
-  generateReplyContent,
 } from "../ai/content-generator";
 import { getDayTarget } from "./schedules";
 import { adjustWarmingPace } from "./adjuster";
-import { updateDomainReputation } from "./reputation";
+import { updateAccountReputation } from "./reputation";
 import { REPLY_PERCENTAGE } from "../constants";
 import { addHours } from "date-fns";
 
@@ -18,93 +17,116 @@ export async function processWarmingBatch(): Promise<void> {
   });
   if (!settings?.warmingEnabled) return;
 
-  const domains = await prisma.domain.findMany({
+  const accounts = await prisma.webmailAccount.findMany({
     where: {
+      isWarmingAccount: true,
       warmingStatus: WarmingStatus.WARMING,
-      isVerified: true,
+      isActive: true,
     },
   });
 
-  for (const domain of domains) {
+  for (const account of accounts) {
     try {
-      await processDomainBatch(domain.id);
+      await processAccountBatch(account.id);
     } catch (err) {
-      console.error(`Error processing domain ${domain.domain}:`, err);
+      console.error(`Error processing account ${account.email}:`, err);
     }
   }
-
-  // Process scheduled replies
-  await processScheduledReplies();
 }
 
-async function processDomainBatch(domainId: string): Promise<void> {
-  const domain = await prisma.domain.findUnique({
-    where: { id: domainId },
+async function processAccountBatch(accountId: string): Promise<void> {
+  const account = await prisma.webmailAccount.findUnique({
+    where: { id: accountId },
     include: { seedAddresses: true },
   });
-  if (!domain) return;
+  if (!account || !account.imapPassword || !account.smtpHost) return;
 
   // Check if day needs advancing
-  await advanceDay(domainId);
+  await advanceDay(accountId);
 
-  // Refresh domain after potential day advance
-  const updatedDomain = await prisma.domain.findUnique({
-    where: { id: domainId },
+  // Refresh account after potential day advance
+  const updatedAccount = await prisma.webmailAccount.findUnique({
+    where: { id: accountId },
   });
-  if (!updatedDomain || updatedDomain.sentToday >= updatedDomain.dailyTarget) return;
+  if (!updatedAccount || updatedAccount.sentToday >= updatedAccount.dailyTarget) return;
 
   // Calculate batch size (spread across ~96 10-min windows in 16 hrs)
-  const remaining = updatedDomain.dailyTarget - updatedDomain.sentToday;
+  const remaining = updatedAccount.dailyTarget - updatedAccount.sentToday;
   const now = new Date();
-  const hoursLeft = Math.max(1, 22 - now.getUTCHours()); // till 10pm
-  const windowsLeft = Math.max(1, hoursLeft * 6); // 6 windows per hour
+  const hoursLeft = Math.max(1, 22 - now.getUTCHours());
+  const windowsLeft = Math.max(1, hoursLeft * 6);
   const batchSize = Math.min(remaining, Math.max(1, Math.ceil(remaining / windowsLeft)));
 
-  // Get seed addresses
+  // Get seed addresses (account-specific + global) and other warming accounts
   const seeds = await prisma.seedAddress.findMany({
     where: {
-      OR: [{ domainId: domainId }, { domainId: null }],
+      OR: [{ accountId: accountId }, { accountId: null }],
     },
   });
 
-  if (seeds.length === 0) {
-    console.warn(`No seed addresses for domain ${updatedDomain.domain}`);
+  // Also get other warming accounts as recipients (cross-warming)
+  const otherAccounts = await prisma.webmailAccount.findMany({
+    where: {
+      id: { not: accountId },
+      isActive: true,
+    },
+    select: { email: true },
+  });
+
+  // Combine seed addresses + other account emails as recipients
+  const recipients = [
+    ...seeds.map((s) => s.email),
+    ...otherAccounts.map((a) => a.email),
+  ];
+
+  if (recipients.length === 0) {
+    console.warn(`No recipients for account ${updatedAccount.email}`);
     return;
   }
 
-  let seedIndex = updatedDomain.sentToday % seeds.length;
+  let recipientIndex = updatedAccount.sentToday % recipients.length;
 
   for (let i = 0; i < batchSize; i++) {
-    const content = await getAvailableContent(domainId);
+    const content = await getAvailableContent(accountId);
     if (!content) {
-      console.warn(`No content available for domain ${updatedDomain.domain}`);
+      console.warn(`No content available for account ${updatedAccount.email}`);
       break;
     }
 
-    const seed = seeds[seedIndex % seeds.length];
-    seedIndex++;
+    const recipient = recipients[recipientIndex % recipients.length];
+    recipientIndex++;
 
-    const fromName = content.senderName || "Team";
-    const fromAddress = `${fromName.toLowerCase().replace(/\s+/g, ".")}@${updatedDomain.domain}`;
+    const displayName = content.senderName || "Team";
 
     try {
-      const result = await sendEmail(updatedDomain.domain, {
-        from: `${fromName} <${fromAddress}>`,
-        to: seed.email,
-        subject: content.subject,
-        text: content.body,
-        html: `<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6;">${content.body.replace(/\n/g, "<br>")}</div>`,
-      });
+      const result = await sendViaSmtp(
+        {
+          email: account.email,
+          imapPassword: account.imapPassword!,
+          smtpHost: account.smtpHost,
+          smtpPort: account.smtpPort,
+          imapHost: account.imapHost,
+          imapPort: account.imapPort,
+          provider: account.provider,
+        },
+        {
+          to: recipient,
+          subject: content.subject,
+          text: content.body,
+          html: `<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6;">${content.body.replace(/\n/g, "<br>")}</div>`,
+          displayName,
+        }
+      );
 
       const shouldReply = Math.random() < REPLY_PERCENTAGE;
-      const replyDelay = 1 + Math.random() * 3; // 1-4 hours
+      const replyDelay = 1 + Math.random() * 3;
 
       await prisma.emailLog.create({
         data: {
-          domainId,
-          mailgunMessageId: result.id,
-          fromAddress,
-          toAddress: seed.email,
+          accountId,
+          smtpMessageId: result.messageId,
+          fromAddress: account.email,
+          toAddress: recipient,
           subject: content.subject,
           bodyPreview: content.body.slice(0, 200),
           status: "SENT",
@@ -118,8 +140,8 @@ async function processDomainBatch(domainId: string): Promise<void> {
 
       await markContentUsed(content.id);
 
-      await prisma.domain.update({
-        where: { id: domainId },
+      await prisma.webmailAccount.update({
+        where: { id: accountId },
         data: { sentToday: { increment: 1 } },
       });
 
@@ -127,18 +149,18 @@ async function processDomainBatch(domainId: string): Promise<void> {
       const today = new Date();
       today.setUTCHours(0, 0, 0, 0);
       await prisma.dailyStat.upsert({
-        where: { domainId_date: { domainId, date: today } },
-        create: { domainId, date: today, sent: 1 },
+        where: { accountId_date: { accountId, date: today } },
+        create: { accountId, date: today, sent: 1 },
         update: { sent: { increment: 1 } },
       });
     } catch (err) {
-      console.error(`Failed to send warming email for ${updatedDomain.domain}:`, err);
+      console.error(`Failed to send warming email from ${updatedAccount.email}:`, err);
 
       await prisma.emailLog.create({
         data: {
-          domainId,
-          fromAddress,
-          toAddress: seed.email,
+          accountId,
+          fromAddress: account.email,
+          toAddress: recipient,
           subject: content.subject,
           bodyPreview: content.body.slice(0, 200),
           status: "FAILED",
@@ -151,99 +173,35 @@ async function processDomainBatch(domainId: string): Promise<void> {
   }
 
   // Run adjuster after batch
-  const adjustment = await adjustWarmingPace(domainId);
+  const adjustment = await adjustWarmingPace(accountId);
   if (adjustment.action !== "continue") {
     console.log(
-      `Domain ${updatedDomain.domain}: ${adjustment.action} - ${adjustment.reason}`
+      `Account ${updatedAccount.email}: ${adjustment.action} - ${adjustment.reason}`
     );
   }
 
   // Update reputation score
-  await updateDomainReputation(domainId);
+  await updateAccountReputation(accountId);
 }
 
-async function advanceDay(domainId: string): Promise<void> {
-  const domain = await prisma.domain.findUnique({ where: { id: domainId } });
-  if (!domain || !domain.warmingStartedAt) return;
+async function advanceDay(accountId: string): Promise<void> {
+  const account = await prisma.webmailAccount.findUnique({ where: { id: accountId } });
+  if (!account || !account.warmingStartedAt) return;
 
   const daysSinceStart = Math.floor(
-    (Date.now() - domain.warmingStartedAt.getTime()) / (1000 * 60 * 60 * 24)
+    (Date.now() - account.warmingStartedAt.getTime()) / (1000 * 60 * 60 * 24)
   );
   const newDay = daysSinceStart + 1;
 
-  if (newDay > domain.currentDay) {
-    const newTarget = await getDayTarget(domainId, newDay);
-    await prisma.domain.update({
-      where: { id: domainId },
+  if (newDay > account.currentDay) {
+    const newTarget = await getDayTarget(accountId, newDay);
+    await prisma.webmailAccount.update({
+      where: { id: accountId },
       data: {
         currentDay: newDay,
         dailyTarget: newTarget,
         sentToday: 0,
       },
     });
-  }
-}
-
-async function processScheduledReplies(): Promise<void> {
-  const dueReplies = await prisma.emailLog.findMany({
-    where: {
-      shouldReply: true,
-      isReply: false,
-      replyScheduledAt: { lte: new Date() },
-      status: { in: ["SENT", "DELIVERED", "OPENED"] },
-    },
-    include: { domain: true },
-    take: 10,
-  });
-
-  for (const original of dueReplies) {
-    try {
-      const replyContent = await generateReplyContent(
-        original.subject,
-        original.bodyPreview || "",
-        original.domain.businessSummary || ""
-      );
-
-      if (!replyContent) {
-        await prisma.emailLog.update({
-          where: { id: original.id },
-          data: { shouldReply: false },
-        });
-        continue;
-      }
-
-      // Send reply FROM seed TO domain address
-      const result = await sendEmail(original.domain.domain, {
-        from: original.toAddress,
-        to: original.fromAddress,
-        subject: replyContent.subject,
-        text: replyContent.body,
-        html: `<div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.6;">${replyContent.body.replace(/\n/g, "<br>")}</div>`,
-        inReplyTo: original.mailgunMessageId || undefined,
-      });
-
-      await prisma.emailLog.create({
-        data: {
-          domainId: original.domainId,
-          mailgunMessageId: result.id,
-          fromAddress: original.toAddress,
-          toAddress: original.fromAddress,
-          subject: replyContent.subject,
-          bodyPreview: replyContent.body.slice(0, 200),
-          isReply: true,
-          inReplyToId: original.id,
-          status: "SENT",
-          sentAt: new Date(),
-        },
-      });
-
-      // Mark original as replied
-      await prisma.emailLog.update({
-        where: { id: original.id },
-        data: { shouldReply: false },
-      });
-    } catch (err) {
-      console.error(`Failed to send reply for email ${original.id}:`, err);
-    }
   }
 }

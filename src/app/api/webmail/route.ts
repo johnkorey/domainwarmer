@@ -4,10 +4,12 @@ import { requireAuth } from "@/lib/auth";
 import { encrypt } from "@/lib/encryption";
 import { getProviderConfig } from "@/lib/webmail/provider-config";
 import { maskApiKey } from "@/lib/utils";
+import { generateBusinessSummary } from "@/lib/ai/content-generator";
 
 export async function GET() {
-  const user = await requireAuth();
-  if (!user) {
+  try {
+    await requireAuth();
+  } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -15,7 +17,7 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
     include: {
       _count: {
-        select: { engagementLogs: true },
+        select: { engagementLogs: true, emailLogs: true },
       },
     },
   });
@@ -29,13 +31,14 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await requireAuth();
-  if (!user) {
+  try {
+    await requireAuth();
+  } catch {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body = await req.json();
-  const { email, provider, imapPassword, imapHost, imapPort, smtpHost, smtpPort } = body;
+  const { email, provider, imapPassword, imapHost, imapPort, smtpHost, smtpPort, isWarmingAccount } = body;
 
   if (!email || !provider || !imapPassword) {
     return NextResponse.json(
@@ -44,7 +47,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const validProviders = ["GMAIL", "OUTLOOK", "YAHOO", "AOL", "ROUNDCUBE"];
+  const validProviders = ["GMAIL", "OUTLOOK", "YAHOO", "AOL", "CPANEL"];
   if (!validProviders.includes(provider)) {
     return NextResponse.json(
       { error: "Invalid provider" },
@@ -52,10 +55,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // For Roundcube, require IMAP host
-  if (provider === "ROUNDCUBE" && !imapHost) {
+  // For cPanel, require IMAP and SMTP host
+  if (provider === "CPANEL" && (!imapHost || !smtpHost)) {
     return NextResponse.json(
-      { error: "IMAP host is required for Roundcube" },
+      { error: "IMAP host and SMTP host are required for cPanel" },
       { status: 400 }
     );
   }
@@ -79,12 +82,28 @@ export async function POST(req: NextRequest) {
       email,
       provider,
       imapPassword: encrypt(imapPassword),
-      imapHost: provider === "ROUNDCUBE" ? imapHost : config.imapHost,
-      imapPort: provider === "ROUNDCUBE" ? (imapPort || config.imapPort) : config.imapPort,
-      smtpHost: provider === "ROUNDCUBE" ? (smtpHost || config.smtpHost) : config.smtpHost,
-      smtpPort: provider === "ROUNDCUBE" ? (smtpPort || config.smtpPort) : config.smtpPort,
+      imapHost: provider === "CPANEL" ? imapHost : config.imapHost,
+      imapPort: provider === "CPANEL" ? (imapPort || config.imapPort) : config.imapPort,
+      smtpHost: provider === "CPANEL" ? smtpHost : config.smtpHost,
+      smtpPort: provider === "CPANEL" ? (smtpPort || config.smtpPort) : config.smtpPort,
+      isWarmingAccount: isWarmingAccount ?? (provider === "CPANEL"),
     },
   });
+
+  // Generate business summary async for warming accounts
+  if (account.isWarmingAccount) {
+    const emailDomain = email.split("@")[1];
+    generateBusinessSummary(emailDomain)
+      .then(async ({ summary, keywords }) => {
+        await prisma.webmailAccount.update({
+          where: { id: account.id },
+          data: { businessSummary: summary, businessKeywords: keywords },
+        });
+      })
+      .catch((err) => {
+        console.error(`Failed to generate business summary for ${email}:`, err);
+      });
+  }
 
   return NextResponse.json(
     { ...account, imapPassword: maskApiKey(account.imapPassword!) },

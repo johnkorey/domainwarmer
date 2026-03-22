@@ -7,32 +7,33 @@ import { CONTENT_POOL_GENERATE } from "@/lib/constants";
 
 export async function POST(
   _request: NextRequest,
-  { params }: { params: Promise<{ domainId: string }> }
+  { params }: { params: Promise<{ accountId: string }> }
 ) {
   try {
     await requireAuth();
-    const { domainId } = await params;
+    const { accountId } = await params;
 
-    const domain = await prisma.domain.findUnique({ where: { id: domainId } });
-    if (!domain) {
-      return NextResponse.json({ error: "Domain not found" }, { status: 404 });
+    const account = await prisma.webmailAccount.findUnique({ where: { id: accountId } });
+    if (!account) {
+      return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
 
-    if (!domain.isVerified) {
+    if (!account.smtpHost || !account.imapPassword) {
       return NextResponse.json(
-        { error: "Domain must be verified before warming can start" },
+        { error: "SMTP and IMAP credentials must be configured before warming can start" },
         { status: 400 }
       );
     }
 
     // Populate warming schedule
-    await populateScheduleConfig(domainId, domain.warmingSchedule);
+    await populateScheduleConfig(accountId, account.warmingSchedule);
 
-    const dayOneTarget = await getDayTarget(domainId, 1);
+    const dayOneTarget = await getDayTarget(accountId, 1);
 
-    await prisma.domain.update({
-      where: { id: domainId },
+    await prisma.webmailAccount.update({
+      where: { id: accountId },
       data: {
+        isWarmingAccount: true,
         warmingStatus: "WARMING",
         warmingStartedAt: new Date(),
         currentDay: 1,
@@ -43,8 +44,8 @@ export async function POST(
     });
 
     // Pre-generate content pool async
-    generateEmailContent(domainId, CONTENT_POOL_GENERATE).catch((err) =>
-      console.error(`Failed to pre-generate content for ${domain.domain}:`, err)
+    generateEmailContent(accountId, CONTENT_POOL_GENERATE).catch((err) =>
+      console.error(`Failed to pre-generate content for ${account.email}:`, err)
     );
 
     return NextResponse.json({ success: true, dailyTarget: dayOneTarget });

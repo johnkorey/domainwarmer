@@ -7,7 +7,7 @@ export async function GET() {
     await requireAuth();
     const seeds = await prisma.seedAddress.findMany({
       orderBy: { createdAt: "desc" },
-      include: { domain: { select: { domain: true } } },
+      include: { account: { select: { email: true } } },
     });
     return NextResponse.json(seeds);
   } catch (err) {
@@ -21,7 +21,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     await requireAuth();
-    const { emails, domainId, isInternal } = await request.json();
+    const { emails, accountId, isInternal } = await request.json();
 
     if (!emails || !Array.isArray(emails) || emails.length === 0) {
       return NextResponse.json(
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
         const seed = await prisma.seedAddress.create({
           data: {
             email: trimmed,
-            domainId: domainId || null,
+            accountId: accountId || null,
             isInternal: isInternal || false,
           },
         });

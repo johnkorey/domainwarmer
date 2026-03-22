@@ -198,17 +198,16 @@ async function sendEngagementReply(
   msg: { messageId: string; from: string; subject: string; folder: string },
   emailLogId: string
 ): Promise<void> {
-  // Get the domain's business summary for context
   const emailLog = await prisma.emailLog.findUnique({
     where: { id: emailLogId },
-    include: { domain: true },
+    include: { account: true },
   });
   if (!emailLog) return;
 
   const replyContent = await generateReplyContent(
     emailLog.subject,
     emailLog.bodyPreview || "",
-    emailLog.domain.businessSummary || ""
+    emailLog.account.businessSummary || ""
   );
 
   if (!replyContent) return;

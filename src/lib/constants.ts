@@ -82,7 +82,7 @@ export const REPUTATION_THRESHOLDS = {
 export const BOUNCE_RATE_LIMIT = 0.05; // 5%
 export const COMPLAINT_RATE_LIMIT = 0.001; // 0.1%
 export const REPLY_PERCENTAGE = 0.3; // 30% of emails get simulated replies
-export const CONTENT_POOL_MIN = 10; // minimum content items per domain
+export const CONTENT_POOL_MIN = 10; // minimum content items per account
 export const CONTENT_POOL_GENERATE = 20; // generate this many when pool is low
 
 // Webmail engagement

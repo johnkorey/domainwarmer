@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { updateDomainReputation } from "@/lib/warming/reputation";
+import { updateAccountReputation } from "@/lib/warming/reputation";
 
 export async function POST(request: NextRequest) {
   const cronSecret = request.headers.get("x-cron-secret");
@@ -9,22 +9,25 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    // Reset sentToday for all domains
-    await prisma.domain.updateMany({
-      where: { warmingStatus: "WARMING" },
+    // Reset sentToday for all warming accounts
+    await prisma.webmailAccount.updateMany({
+      where: { isWarmingAccount: true, warmingStatus: "WARMING" },
       data: { sentToday: 0 },
     });
 
-    // Update reputation scores for all active domains
-    const domains = await prisma.domain.findMany({
-      where: { warmingStatus: { in: ["WARMING", "READY"] } },
+    // Update reputation scores for all active warming accounts
+    const accounts = await prisma.webmailAccount.findMany({
+      where: {
+        isWarmingAccount: true,
+        warmingStatus: { in: ["WARMING", "READY"] },
+      },
     });
 
-    for (const domain of domains) {
-      await updateDomainReputation(domain.id);
+    for (const account of accounts) {
+      await updateAccountReputation(account.id);
     }
 
-    return NextResponse.json({ success: true, updated: domains.length });
+    return NextResponse.json({ success: true, updated: accounts.length });
   } catch (err) {
     console.error("Stats aggregation cron error:", err);
     return NextResponse.json(

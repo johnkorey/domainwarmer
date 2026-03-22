@@ -12,10 +12,10 @@ import { Plus, Trash2, Upload } from "lucide-react";
 interface SeedAddress {
   id: string;
   email: string;
-  domainId: string | null;
+  accountId: string | null;
   isInternal: boolean;
   createdAt: string;
-  domain?: { domain: string } | null;
+  account?: { email: string } | null;
 }
 
 export default function SeedsPage() {
@@ -152,7 +152,7 @@ export default function SeedsPage() {
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="text-left p-4 font-medium">Email</th>
-                  <th className="text-left p-4 font-medium">Linked Domain</th>
+                  <th className="text-left p-4 font-medium">Linked Account</th>
                   <th className="text-left p-4 font-medium">Type</th>
                   <th className="text-left p-4 font-medium">Added</th>
                   <th className="text-right p-4 font-medium">Actions</th>
@@ -163,8 +163,8 @@ export default function SeedsPage() {
                   <tr key={seed.id} className="border-b hover:bg-muted/30">
                     <td className="p-4 font-mono text-sm">{seed.email}</td>
                     <td className="p-4">
-                      {seed.domain ? (
-                        <Badge variant="outline">{seed.domain.domain}</Badge>
+                      {seed.account ? (
+                        <Badge variant="outline">{seed.account.email}</Badge>
                       ) : (
                         <span className="text-muted-foreground">Global</span>
                       )}

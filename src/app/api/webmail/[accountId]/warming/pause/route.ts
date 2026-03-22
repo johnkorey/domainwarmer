@@ -4,14 +4,14 @@ import { requireAuth } from "@/lib/auth";
 
 export async function POST(
   _request: NextRequest,
-  { params }: { params: Promise<{ domainId: string }> }
+  { params }: { params: Promise<{ accountId: string }> }
 ) {
   try {
     await requireAuth();
-    const { domainId } = await params;
+    const { accountId } = await params;
 
-    await prisma.domain.update({
-      where: { id: domainId },
+    await prisma.webmailAccount.update({
+      where: { id: accountId },
       data: {
         warmingStatus: "PAUSED",
         pausedAt: new Date(),

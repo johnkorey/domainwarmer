@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 import {
   Flame,
   LayoutDashboard,
-  Globe,
   Mail,
+  Inbox,
   MousePointerClick,
   Settings,
   LogOut,
@@ -15,8 +15,8 @@ import {
 
 const navItems = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Domains", href: "/dashboard/domains", icon: Globe },
-  { label: "Seed Addresses", href: "/dashboard/seeds", icon: Mail },
+  { label: "Accounts", href: "/dashboard/accounts", icon: Mail },
+  { label: "Seed Addresses", href: "/dashboard/seeds", icon: Inbox },
   { label: "Engagement", href: "/dashboard/engagement", icon: MousePointerClick },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
@@ -36,7 +36,7 @@ export function Sidebar() {
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
           <Flame className="h-4 w-4 text-primary-foreground" />
         </div>
-        <span className="text-lg font-bold">Domain Warmer</span>
+        <span className="text-lg font-bold">Email Warmer</span>
       </div>
 
       <nav className="flex-1 space-y-1 p-3">

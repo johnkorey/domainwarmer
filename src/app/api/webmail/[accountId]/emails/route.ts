@@ -4,18 +4,18 @@ import { requireAuth } from "@/lib/auth";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ domainId: string }> }
+  { params }: { params: Promise<{ accountId: string }> }
 ) {
   try {
     await requireAuth();
-    const { domainId } = await params;
+    const { accountId } = await params;
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get("page") || "1");
     const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100);
     const status = searchParams.get("status");
     const skip = (page - 1) * limit;
 
-    const where: Record<string, unknown> = { domainId };
+    const where: Record<string, unknown> = { accountId };
     if (status) {
       where.status = status;
     }

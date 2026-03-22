@@ -11,18 +11,18 @@ export function getScheduleLength(type: ScheduleType): number {
 }
 
 export async function populateScheduleConfig(
-  domainId: string,
+  accountId: string,
   scheduleType: ScheduleType
 ): Promise<void> {
   // Clear existing config
-  await prisma.warmingScheduleConfig.deleteMany({ where: { domainId } });
+  await prisma.warmingScheduleConfig.deleteMany({ where: { accountId } });
 
   const preset = getSchedulePreset(scheduleType);
 
   // Batch create all day configs
   await prisma.warmingScheduleConfig.createMany({
     data: preset.map((entry) => ({
-      domainId,
+      accountId,
       day: entry.day,
       targetVolume: entry.volume,
     })),
@@ -30,11 +30,11 @@ export async function populateScheduleConfig(
 }
 
 export async function getDayTarget(
-  domainId: string,
+  accountId: string,
   day: number
 ): Promise<number> {
   const config = await prisma.warmingScheduleConfig.findUnique({
-    where: { domainId_day: { domainId, day } },
+    where: { accountId_day: { accountId, day } },
   });
   return config?.targetVolume ?? 0;
 }

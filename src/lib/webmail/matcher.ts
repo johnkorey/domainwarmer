@@ -9,10 +9,10 @@ export async function matchToEmailLog(
   const lookbackDate = new Date();
   lookbackDate.setDate(lookbackDate.getDate() - WEBMAIL_LOOKBACK_DAYS);
 
-  // Try matching by Mailgun Message-ID first (most accurate)
+  // Try matching by SMTP Message-ID first (most accurate)
   if (msg.messageId) {
     const byMessageId = await prisma.emailLog.findUnique({
-      where: { mailgunMessageId: msg.messageId },
+      where: { smtpMessageId: msg.messageId },
       select: { id: true },
     });
     if (byMessageId) return byMessageId.id;

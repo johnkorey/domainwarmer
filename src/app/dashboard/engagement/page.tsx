@@ -62,7 +62,7 @@ const PROVIDERS = [
   { value: "OUTLOOK", label: "Outlook", help: "Use your account password or App Password" },
   { value: "YAHOO", label: "Yahoo", help: "Use an App Password from Yahoo security settings" },
   { value: "AOL", label: "AOL", help: "Use an App Password from AOL security settings" },
-  { value: "ROUNDCUBE", label: "Roundcube", help: "Enter your IMAP server details" },
+  { value: "CPANEL", label: "cPanel", help: "Enter your IMAP server details" },
 ];
 
 const ACTION_LABELS: Record<string, { label: string; color: string }> = {
@@ -119,7 +119,7 @@ export default function EngagementPage() {
       imapPassword: password,
     };
 
-    if (provider === "ROUNDCUBE") {
+    if (provider === "CPANEL") {
       body.imapHost = imapHost;
       body.imapPort = imapPort ? parseInt(imapPort) : undefined;
       body.smtpHost = smtpHost || undefined;
@@ -293,7 +293,7 @@ export default function EngagementPage() {
               />
             </div>
 
-            {provider === "ROUNDCUBE" && (
+            {provider === "CPANEL" && (
               <>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -338,7 +338,7 @@ export default function EngagementPage() {
 
             <Button
               onClick={handleAdd}
-              disabled={adding || !email || !password || (provider === "ROUNDCUBE" && !imapHost)}
+              disabled={adding || !email || !password || (provider === "CPANEL" && !imapHost)}
             >
               {adding ? "Adding..." : "Add Account"}
             </Button>
