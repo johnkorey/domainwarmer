@@ -45,6 +45,7 @@ export default function SettingsPage() {
   // UI state
   const [showMailgun, setShowMailgun] = useState(false);
   const [showOpenRouter, setShowOpenRouter] = useState(false);
+  const [revealedKeys, setRevealedKeys] = useState<SettingsData | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
@@ -67,6 +68,18 @@ export default function SettingsPage() {
     setLoading(false);
   }
 
+  async function toggleReveal(field: "mailgun" | "openRouter") {
+    const isShowing = field === "mailgun" ? showMailgun : showOpenRouter;
+    if (!isShowing && !revealedKeys) {
+      const res = await fetch("/api/settings?reveal=true");
+      if (res.ok) {
+        setRevealedKeys(await res.json());
+      }
+    }
+    if (field === "mailgun") setShowMailgun(!showMailgun);
+    else setShowOpenRouter(!showOpenRouter);
+  }
+
   async function saveField(field: string, value: unknown) {
     setSaving(field);
     await fetch("/api/settings", {
@@ -79,10 +92,11 @@ export default function SettingsPage() {
     setSaved(field);
     setTimeout(() => setSaved(null), 2000);
 
-    // Clear input fields after saving API keys
+    // Clear input fields and revealed keys after saving API keys
     if (field === "mailgunApiKey") setMailgunKey("");
     if (field === "openRouterApiKey") setOpenRouterKey("");
     if (field === "webhookSigningKey") setWebhookKey("");
+    setRevealedKeys(null);
   }
 
   async function changePassword() {
@@ -164,7 +178,7 @@ export default function SettingsPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => setShowMailgun(!showMailgun)}
+                  onClick={() => toggleReveal("mailgun")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground"
                 >
                   {showMailgun ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -186,9 +200,9 @@ export default function SettingsPage() {
                 )}
               </Button>
             </div>
-            {settings?.mailgunApiKey && (
-              <p className="text-xs text-muted-foreground mt-2">
-                Current: {settings.mailgunApiKey}
+            {settings?.hasMailgunKey && (
+              <p className="text-xs text-muted-foreground mt-2 font-mono break-all">
+                Current: {showMailgun && revealedKeys?.mailgunApiKey ? revealedKeys.mailgunApiKey : settings.mailgunApiKey}
               </p>
             )}
           </CardContent>
@@ -223,7 +237,7 @@ export default function SettingsPage() {
                 />
                 <button
                   type="button"
-                  onClick={() => setShowOpenRouter(!showOpenRouter)}
+                  onClick={() => toggleReveal("openRouter")}
                   className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted-foreground"
                 >
                   {showOpenRouter ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -243,9 +257,9 @@ export default function SettingsPage() {
                 )}
               </Button>
             </div>
-            {settings?.openRouterApiKey && (
-              <p className="text-xs text-muted-foreground mt-2">
-                Current: {settings.openRouterApiKey}
+            {settings?.hasOpenRouterKey && (
+              <p className="text-xs text-muted-foreground mt-2 font-mono break-all">
+                Current: {showOpenRouter && revealedKeys?.openRouterApiKey ? revealedKeys.openRouterApiKey : settings.openRouterApiKey}
               </p>
             )}
           </CardContent>

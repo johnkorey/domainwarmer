@@ -5,7 +5,7 @@ import { encrypt, decrypt } from "@/lib/encryption";
 import { validateApiKey } from "@/lib/mailgun/client";
 import { maskApiKey } from "@/lib/utils";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     await requireAuth();
 
@@ -17,15 +17,19 @@ export async function GET() {
       settings = await prisma.settings.create({ data: { id: "singleton" } });
     }
 
+    const reveal = request.nextUrl.searchParams.get("reveal") === "true";
+
     return NextResponse.json({
       ...settings,
       mailgunApiKey: settings.mailgunApiKey
-        ? maskApiKey(decrypt(settings.mailgunApiKey))
+        ? reveal ? decrypt(settings.mailgunApiKey) : maskApiKey(decrypt(settings.mailgunApiKey))
         : null,
       openRouterApiKey: settings.openRouterApiKey
-        ? maskApiKey(decrypt(settings.openRouterApiKey))
+        ? reveal ? decrypt(settings.openRouterApiKey) : maskApiKey(decrypt(settings.openRouterApiKey))
         : null,
-      webhookSigningKey: settings.webhookSigningKey ? "••••••••" : null,
+      webhookSigningKey: settings.webhookSigningKey
+        ? reveal ? decrypt(settings.webhookSigningKey) : "••••••••"
+        : null,
       hasMailgunKey: !!settings.mailgunApiKey,
       hasOpenRouterKey: !!settings.openRouterApiKey,
       hasWebhookKey: !!settings.webhookSigningKey,
