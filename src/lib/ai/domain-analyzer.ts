@@ -1,9 +1,9 @@
-import dns from "dns";
-import { promisify } from "util";
+import { Resolver } from "dns/promises";
 import { chatCompletion } from "./openrouter";
 
-const resolveMx = promisify(dns.resolveMx);
-const resolveTxt = promisify(dns.resolveTxt);
+// Use Google public DNS instead of system resolver (system DNS fails on some servers)
+const resolver = new Resolver();
+resolver.setServers(["8.8.8.8", "8.8.4.4"]);
 
 export interface DomainAnalysis {
   domain: string;
@@ -20,10 +20,10 @@ export interface DomainAnalysis {
 
 async function checkMx(domain: string): Promise<{ found: boolean; records: string[] }> {
   try {
-    const records = await resolveMx(domain);
+    const records = await resolver.resolveMx(domain);
     return {
       found: records.length > 0,
-      records: records.sort((a, b) => a.priority - b.priority).map((r) => r.exchange),
+      records: records.sort((a: { priority: number }, b: { priority: number }) => a.priority - b.priority).map((r: { exchange: string }) => r.exchange),
     };
   } catch {
     return { found: false, records: [] };
@@ -32,7 +32,7 @@ async function checkMx(domain: string): Promise<{ found: boolean; records: strin
 
 async function checkSpf(domain: string): Promise<{ found: boolean; record: string | null }> {
   try {
-    const records = await resolveTxt(domain);
+    const records = await resolver.resolveTxt(domain);
     const spf = records.flat().find((r) => r.startsWith("v=spf1"));
     return { found: !!spf, record: spf || null };
   } catch {
@@ -42,7 +42,7 @@ async function checkSpf(domain: string): Promise<{ found: boolean; record: strin
 
 async function checkDmarc(domain: string): Promise<{ found: boolean; record: string | null }> {
   try {
-    const records = await resolveTxt(`_dmarc.${domain}`);
+    const records = await resolver.resolveTxt(`_dmarc.${domain}`);
     const dmarc = records.flat().find((r) => r.startsWith("v=DMARC1"));
     return { found: !!dmarc, record: dmarc || null };
   } catch {

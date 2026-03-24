@@ -33,15 +33,13 @@ export async function POST(
     );
   }
 
-  // Verify password can be decrypted — if not, user needs to re-enter it
+  // Warn about password but don't block initialization — analysis doesn't need SMTP
+  let passwordWarning = "";
   if (account.imapPassword) {
     try {
       decrypt(account.imapPassword);
     } catch {
-      return NextResponse.json(
-        { error: "Email password cannot be decrypted. Please update your password in the Settings tab, then try again." },
-        { status: 400 }
-      );
+      passwordWarning = "Warning: Email password cannot be decrypted. Update it in the Settings tab before warming can send emails.";
     }
   }
 
@@ -60,6 +58,7 @@ export async function POST(
 
   try {
     // Phase 1: Analyze domain and generate business summary in parallel
+    // This is the fast part (~5-10s)
     const [analysis, businessData] = await Promise.all([
       analyzeDomain(emailDomain),
       generateBusinessSummary(emailDomain),
@@ -73,6 +72,7 @@ export async function POST(
         reputationScore: analysis.score,
         businessSummary: businessData.summary,
         businessKeywords: businessData.keywords,
+        lastError: null,
       },
     });
 
@@ -99,16 +99,19 @@ export async function POST(
       });
     }
 
-    // Phase 4: Generate content pool if empty
+    // Phase 4: Generate content pool in the BACKGROUND — don't block the response
     const contentCount = await prisma.generatedContent.count({
       where: { accountId: account.id, usedAt: null },
     });
     if (contentCount < CONTENT_POOL_GENERATE) {
       const toGenerate = CONTENT_POOL_GENERATE - contentCount;
-      await generateEmailContent(account.id, toGenerate);
+      // Fire and forget — content generation is slow (20 AI calls)
+      generateEmailContent(account.id, toGenerate)
+        .then(() => console.log(`[Initialize] Content pool generated for ${account.email} (${toGenerate} emails)`))
+        .catch((err) => console.error(`[Initialize] Content generation failed for ${account.email}:`, err));
     }
 
-    // Return updated account
+    // Return updated account immediately
     const updated = await prisma.webmailAccount.findUnique({
       where: { id: account.id },
       include: {
@@ -122,9 +125,14 @@ export async function POST(
     return NextResponse.json({
       ...updated,
       imapPassword: updated?.imapPassword ? maskApiKey(updated.imapPassword) : null,
+      ...(passwordWarning ? { warning: passwordWarning } : {}),
     });
   } catch (err) {
     console.error(`[Initialize] Failed for ${account.email}:`, err);
+    await prisma.webmailAccount.update({
+      where: { id: account.id },
+      data: { lastError: `Initialization failed: ${err instanceof Error ? err.message : "Unknown error"}` },
+    }).catch(() => {});
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Initialization failed" },
       { status: 500 }

@@ -1,17 +1,61 @@
 import crypto from "crypto";
+import { prisma } from "./prisma";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 16;
-const TAG_LENGTH = 16;
 
-function getKey(): Buffer {
-  const key = process.env.ENCRYPTION_KEY;
-  if (!key) throw new Error("ENCRYPTION_KEY environment variable is required");
-  return crypto.scryptSync(key, "salt", 32);
+// Cache the key in memory after first fetch
+let cachedKey: Buffer | null = null;
+
+async function getKey(): Promise<Buffer> {
+  if (cachedKey) return cachedKey;
+
+  // Try to load from database first
+  const settings = await prisma.settings.findUnique({
+    where: { id: "singleton" },
+  });
+
+  if (settings?.encryptionKey) {
+    cachedKey = Buffer.from(settings.encryptionKey, "hex");
+    return cachedKey;
+  }
+
+  // No key in DB — generate one and store it permanently
+  const newKey = crypto.randomBytes(32);
+
+  await prisma.settings.upsert({
+    where: { id: "singleton" },
+    create: { id: "singleton", encryptionKey: newKey.toString("hex") },
+    update: { encryptionKey: newKey.toString("hex") },
+  });
+
+  cachedKey = newKey;
+  return cachedKey;
+}
+
+// Synchronous version using cached key — throws if key not loaded yet
+function getKeySync(): Buffer {
+  if (cachedKey) return cachedKey;
+
+  // Fallback to env var for backwards compatibility during startup
+  const envKey = process.env.ENCRYPTION_KEY;
+  if (envKey) {
+    return crypto.scryptSync(envKey, "salt", 32);
+  }
+
+  throw new Error("Encryption key not loaded. Call ensureEncryptionKey() first.");
+}
+
+/**
+ * Must be called once at app startup to load the encryption key from DB.
+ * After this, encrypt/decrypt work synchronously.
+ */
+export async function ensureEncryptionKey(): Promise<void> {
+  await getKey();
 }
 
 export function encrypt(text: string): string {
-  const key = getKey();
+  const key = getKeySync();
   const iv = crypto.randomBytes(IV_LENGTH);
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
 
@@ -24,7 +68,7 @@ export function encrypt(text: string): string {
 }
 
 export function decrypt(encryptedText: string): string {
-  const key = getKey();
+  const key = getKeySync();
   const parts = encryptedText.split(":");
   const iv = Buffer.from(parts[0], "hex");
   const tag = Buffer.from(parts[1], "hex");

@@ -23,6 +23,7 @@ import {
   WifiOff,
   RefreshCw,
 } from "lucide-react";
+import Link from "next/link";
 
 interface WebmailAccount {
   id: string;
@@ -96,19 +97,27 @@ export default function EngagementPage() {
   }, []);
 
   async function fetchData() {
-    const [accountsRes, statsRes] = await Promise.all([
-      fetch("/api/webmail"),
-      fetch("/api/webmail/engagement-stats"),
-    ]);
+    try {
+      const [accountsRes, statsRes] = await Promise.all([
+        fetch("/api/webmail"),
+        fetch("/api/webmail/engagement-stats"),
+      ]);
 
-    if (accountsRes.status === 401) {
-      window.location.href = "/login";
-      return;
+      if (accountsRes.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const accountsData = await accountsRes.json();
+      setAccounts(Array.isArray(accountsData) ? accountsData : []);
+      if (statsRes.ok) {
+        setEngagementData(await statsRes.json());
+      }
+    } catch (err) {
+      console.error("Failed to fetch engagement data:", err);
+    } finally {
+      setLoading(false);
     }
-
-    setAccounts(await accountsRes.json());
-    setEngagementData(await statsRes.json());
-    setLoading(false);
   }
 
   async function handleAdd() {
@@ -367,7 +376,14 @@ export default function EngagementPage() {
               <tbody>
                 {accounts.map((account) => (
                   <tr key={account.id} className="border-b hover:bg-muted/30">
-                    <td className="p-4 font-mono text-sm">{account.email}</td>
+                    <td className="p-4 font-mono text-sm">
+                          <Link
+                            href={`/dashboard/accounts/${account.id}`}
+                            className="text-primary hover:underline"
+                          >
+                            {account.email}
+                          </Link>
+                        </td>
                     <td className="p-4">
                       <Badge variant="outline">{account.provider}</Badge>
                     </td>

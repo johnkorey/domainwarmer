@@ -5,18 +5,26 @@ const CRON_SECRET = process.env.CRON_SECRET || "dev-cron-secret";
 
 async function triggerCron(path: string): Promise<void> {
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120_000);
     const res = await fetch(`${APP_URL}${path}`, {
       method: "POST",
       headers: {
         "x-cron-secret": CRON_SECRET,
         "Content-Type": "application/json",
       },
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
     if (!res.ok) {
       console.error(`Cron ${path} failed: ${res.status}`);
     }
   } catch (err) {
-    console.error(`Cron ${path} error:`, err);
+    if (err instanceof Error && err.name === "AbortError") {
+      console.error(`Cron ${path} timed out after 120s`);
+    } else {
+      console.error(`Cron ${path} error:`, err);
+    }
   }
 }
 

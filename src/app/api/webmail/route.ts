@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
-import { encrypt } from "@/lib/encryption";
+import { encrypt, decrypt } from "@/lib/encryption";
 import { getProviderConfig } from "@/lib/webmail/provider-config";
 import { maskApiKey } from "@/lib/utils";
 import { generateBusinessSummary, generateEmailContent } from "@/lib/ai/content-generator";
@@ -25,10 +25,21 @@ export async function GET() {
     },
   });
 
-  const masked = accounts.map((a) => ({
-    ...a,
-    imapPassword: a.imapPassword ? maskApiKey(a.imapPassword) : null,
-  }));
+  const masked = accounts.map((a) => {
+    let passwordBroken = false;
+    if (a.imapPassword) {
+      try {
+        decrypt(a.imapPassword);
+      } catch {
+        passwordBroken = true;
+      }
+    }
+    return {
+      ...a,
+      imapPassword: a.imapPassword ? maskApiKey(a.imapPassword) : null,
+      passwordBroken,
+    };
+  });
 
   return NextResponse.json(masked);
 }

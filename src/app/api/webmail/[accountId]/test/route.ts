@@ -23,8 +23,17 @@ export async function POST(
     return NextResponse.json({ error: "Account not found" }, { status: 404 });
   }
 
+  let password: string;
   try {
-    const password = decrypt(account.imapPassword);
+    password = decrypt(account.imapPassword);
+  } catch {
+    return NextResponse.json(
+      { success: false, error: "Password cannot be decrypted. Please update your password in the account settings." },
+      { status: 400 }
+    );
+  }
+
+  try {
     const config = getProviderConfig(
       account.provider,
       account.imapHost,
@@ -38,8 +47,16 @@ export async function POST(
     await client.disconnect();
 
     return NextResponse.json({ success: true, message: "Connection successful" });
-  } catch (err) {
-    const errorMsg = err instanceof Error ? err.message : "Connection failed";
+  } catch (err: unknown) {
+    let errorMsg = "Connection failed";
+    const error = err as { authenticationFailed?: boolean; responseText?: string; message?: string };
+    if (error.authenticationFailed) {
+      errorMsg = "Authentication failed — wrong password. Update it in account settings.";
+    } else if (error.responseText) {
+      errorMsg = error.responseText;
+    } else if (error.message) {
+      errorMsg = error.message;
+    }
     return NextResponse.json(
       { success: false, error: errorMsg },
       { status: 400 }
