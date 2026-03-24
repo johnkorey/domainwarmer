@@ -205,7 +205,6 @@ model Settings {
   maxDailyGlobalEmails     Int     @default(500)
   warmingEnabled           Boolean @default(true)
   webmailEngagementEnabled Boolean @default(true)
-  encryptionKey            String? @db.Text
 }
 
 // ─── Engagement tracking ───

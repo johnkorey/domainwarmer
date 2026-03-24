@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
-import { encrypt, decrypt } from "@/lib/encryption";
+import { encrypt } from "@/lib/encryption";
 import { getProviderConfig } from "@/lib/webmail/provider-config";
 import { maskApiKey } from "@/lib/utils";
 import { generateBusinessSummary, generateEmailContent } from "@/lib/ai/content-generator";
@@ -25,21 +25,10 @@ export async function GET() {
     },
   });
 
-  const masked = accounts.map((a) => {
-    let passwordBroken = false;
-    if (a.imapPassword) {
-      try {
-        decrypt(a.imapPassword);
-      } catch {
-        passwordBroken = true;
-      }
-    }
-    return {
-      ...a,
-      imapPassword: a.imapPassword ? maskApiKey(a.imapPassword) : null,
-      passwordBroken,
-    };
-  });
+  const masked = accounts.map((a) => ({
+    ...a,
+    imapPassword: a.imapPassword ? maskApiKey(a.imapPassword) : null,
+  }));
 
   return NextResponse.json(masked);
 }
@@ -90,6 +79,26 @@ export async function POST(req: NextRequest) {
 
   // Get provider config for defaults
   const config = getProviderConfig(provider, imapHost, imapPort, smtpHost, smtpPort);
+
+  // Validate credentials before saving — test IMAP connection
+  try {
+    const { ImapWebmailClient } = await import("@/lib/webmail/imap-client");
+    const testClient = new ImapWebmailClient(email, imapPassword, config);
+    await testClient.connect();
+    await testClient.disconnect();
+  } catch (err: unknown) {
+    const error = err as { authenticationFailed?: boolean; responseText?: string; message?: string };
+    if (error.authenticationFailed) {
+      return NextResponse.json(
+        { error: "Authentication failed — check your email and password." },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json(
+      { error: `Connection failed: ${error.responseText || error.message || "Could not connect to mail server. Check your host/port settings."}` },
+      { status: 400 }
+    );
+  }
 
   const account = await prisma.webmailAccount.create({
     data: {
